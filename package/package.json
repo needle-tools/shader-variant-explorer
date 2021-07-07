@@ -1,0 +1,10 @@
+{
+    "name": "com.needle.shader-explorer",
+    "version": "0.1.0-exp",
+    "displayName": "Shader Explorer",
+    "author": {
+        "name": "Needle",
+        "email": "hi@needle.tools",
+        "url": "https://needle.tools"
+    }
+}

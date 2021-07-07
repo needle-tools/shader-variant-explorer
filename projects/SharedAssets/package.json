@@ -1,0 +1,10 @@
+{
+    "name": "com.needle.shader-explorer-shared-assets",
+    "version": "0.1.0-exp",
+    "displayName": "Shader Explorer Shared Assets",
+    "author": {
+        "name": "Needle",
+        "email": "hi@needle.tools",
+        "url": "https://needle.tools"
+    }
+}

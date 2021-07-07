@@ -1,0 +1,7 @@
+﻿projects/*/Library
+projects/*/Logs
+projects/*/UserSettings
+projects/*/*.sln
+projects/*/*.csproj
+projects/*/.idea
+projects/*/obj

@@ -1,3 +1,6 @@
+#if !UNITY_2021_1_OR_NEWER
+#define HAVE_LOCAL_KEYWORDS
+#endif
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -40,7 +43,7 @@ namespace Needle.Rendering.Editor
 
         public List<Variant> availableVariants;
         public bool collapseLines;
-        private ListView errorScrollView;
+        private ListView errorScrollView, codeScrollView;
 
         class KeywordBreadcrumbs : ToolbarBreadcrumbs
         {
@@ -113,12 +116,15 @@ namespace Needle.Rendering.Editor
 
             public string GetSortedKeywordString()
             {
-                if (!selectedKeywords.Any()) return null;
+                if (!selectedKeywords.Any()) return "<none>";
                 return string.Join(" ", selectedKeywords.OrderBy(x => x.TrimStart('_')));
             }
         }
-            
-        KeywordBreadcrumbs globalBreadcrumbs, localBreadcrumbs;
+
+        private KeywordBreadcrumbs globalBreadcrumbs;
+#if HAVE_LOCAL_KEYWORDS
+        private KeywordBreadcrumbs localBreadcrumbs;
+#endif
 
         private void OnEnable()
         {
@@ -156,7 +162,9 @@ namespace Needle.Rendering.Editor
                 if (userData is Variant variant)
                 {
                     globalBreadcrumbs.SetSelectedKeywords(variant.globalKeywords, false);
+#if HAVE_LOCAL_KEYWORDS
                     localBreadcrumbs.SetSelectedKeywords(variant.localKeywords, false);
+#endif
                     KeywordSelectionChanged();
                 }
             }
@@ -167,7 +175,21 @@ namespace Needle.Rendering.Editor
                 foreach (var variant in availableVariants)
                 {
                     var hasLocalKeywords = !string.IsNullOrEmpty(variant.localKeywords);
-                    menu.AddItem(new GUIContent(variant.globalKeywords + " _" + (hasLocalKeywords ? ("/" + variant.localKeywords + " _") : "")), false, SelectVariant, variant);
+                    var variantString = variant.globalKeywords + (hasLocalKeywords ? " " + variant.localKeywords : "");
+
+                    int keywordCount = 0;
+                    var chars = variantString.ToCharArray();
+                    for (int i = 0; i < chars.Length; i++)
+                    {
+                        if (chars[i] == ' ') {
+                            keywordCount++;
+                            if (keywordCount % 2 == 0)
+                                chars[i] = '/';
+                        }
+                    }
+
+                    variantString = new string(chars).Replace(" ", "  •  ");
+                    menu.AddItem(new GUIContent(variantString + " _"), false, SelectVariant, variant);
                 }
                 menu.ShowAsContext();
             })
@@ -190,21 +212,28 @@ namespace Needle.Rendering.Editor
             root.Add(toolbar);
 
             var globalKeywordToolbar = new Toolbar();
-            globalKeywordToolbar.Add(new Label("Global Keywords") { style = {width = 100}});
+            var keywordsText =
+#if HAVE_LOCAL_KEYWORDS
+                "Global Keywords";
+#else
+                "Keywords";
+#endif
+            globalKeywordToolbar.Add(new Label(keywordsText) { style = {width = 100}});
             globalBreadcrumbs = new KeywordBreadcrumbs();
             globalBreadcrumbs.onSelectionChanged += KeywordSelectionChanged;
             globalKeywordToolbar.Add(globalBreadcrumbs);
             
             root.Add(globalKeywordToolbar);
 
+#if HAVE_LOCAL_KEYWORDS
             var localKeywordToolbar = new Toolbar();
             localKeywordToolbar.Add(new Label("Local Keywords ") { style = {width = 100}});
             localBreadcrumbs = new KeywordBreadcrumbs();
             localBreadcrumbs.onSelectionChanged += KeywordSelectionChanged;
             localKeywordToolbar.Add(localBreadcrumbs);
-            
             root.Add(localKeywordToolbar);
-
+#endif
+            
             var split = new TwoPaneSplitView(0, 60, TwoPaneSplitViewOrientation.Vertical)
             {
                 style = {height = 10000}
@@ -212,7 +241,11 @@ namespace Needle.Rendering.Editor
             root.Add(split);
             
             errorScrollView = new ListView() {
+#if HAVE_LOCAL_KEYWORDS
                 itemHeight = 60,
+#else
+                fixedItemHeight = 60,
+#endif
                 makeItem = () =>
                 {
                     Debug.Log("Making Item");
@@ -255,9 +288,13 @@ namespace Needle.Rendering.Editor
             errorScrollView.Bind(tempDataSerializedObject);
             split.Add(errorScrollView);
 
-            var codeScrollView = new ListView()
+            codeScrollView = new ListView()
             {
+#if HAVE_LOCAL_KEYWORDS
                 itemHeight = 20,
+#else
+                fixedItemHeight = 20,
+#endif
                 makeItem = () =>
                 {
                     var v = new VisualElement() {style = {flexDirection = FlexDirection.Row}};
@@ -305,12 +342,11 @@ namespace Needle.Rendering.Editor
                 showBoundCollectionSize = false,
             };
             codeScrollView.Bind(tempDataSerializedObject);
-            codeScrollView.onItemsChosen += objects =>
+
+            void GetFileAndLineIndex(int selectedIndex, out string file, out int lineIndex)
             {
-                var selectedSection = listViewData.sections[codeScrollView.selectedIndex];
-                // find file
-                var file = "";
-                for (int index = codeScrollView.selectedIndex; index >= 0; index--)
+                file = "";
+                for (int index = selectedIndex; index >= 0; index--)
                 {
                     if (listViewData.sections[index].fileSectionStart != null)
                     {
@@ -318,19 +354,37 @@ namespace Needle.Rendering.Editor
                         break;
                     }
                 }
-                Debug.Log("File: " + file + ", line: " + selectedSection.lineIndex);
+                lineIndex = listViewData.sections[selectedIndex].lineIndex;
+            }
+            
+            codeScrollView.onItemsChosen += objects =>
+            {
+                GetFileAndLineIndex(codeScrollView.selectedIndex, out string file, out int lineIndex);
+                Debug.Log("File: " + file + ", line: " + lineIndex);
                 
                 if(File.Exists(file))
-                    UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(file, selectedSection.lineIndex);
+                    UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(file, lineIndex);
+            };
+            codeScrollView.onSelectionChange += objects =>
+            {
+                GetFileAndLineIndex(codeScrollView.selectedIndex, out string file, out int lineIndex);
+                // Debug.Log("File: " + file + ", line: " + lineIndex);
+                selectedFile = file;
+                selectedLineIndex = lineIndex;
             };
             split.Add(codeScrollView);
         }
 
+        private string selectedFile;
+        private int selectedLineIndex;
+        
         private void KeywordSelectionChanged()
         {
             var sections = availableVariants.FirstOrDefault(x =>
-                    x.globalKeywords == globalBreadcrumbs.GetSortedKeywordString() &&
-                    x.localKeywords == localBreadcrumbs.GetSortedKeywordString()
+                    x.globalKeywords == globalBreadcrumbs.GetSortedKeywordString()
+#if HAVE_LOCAL_KEYWORDS
+                    && x.localKeywords == localBreadcrumbs.GetSortedKeywordString()
+#endif
                 )?
                 .mapping
                 .SelectMany(x => x.lines)
@@ -339,6 +393,24 @@ namespace Needle.Rendering.Editor
             tempDataSerializedObject.Update();
             
             Debug.Log("Total number of lines in variant: " + listViewData.sections?.Count);
+            
+            // make sure the right ListView index is selected
+            SetListViewSelection(selectedFile, selectedLineIndex);
+        }
+
+        private void SetListViewSelection(string s, int index)
+        {
+            var section = listViewData.sections.FirstOrDefault(x => x.fileSectionStart == s);
+            var sectionIndex = listViewData.sections.IndexOf(section);
+
+            void SetSelected()
+            {
+                codeScrollView.SetSelection(sectionIndex);
+                codeScrollView.ScrollToId(sectionIndex);    
+            }
+
+            SetSelected();
+            EditorApplication.delayCall += SetSelected;
         }
 
         [NonSerialized] private string editorRoot = null;
@@ -407,7 +479,9 @@ namespace Needle.Rendering.Editor
             // not sure why this has to be added (doesn't show in the keyword list returned by Unity); potentially others have to be added as well?
             globalKeywordsList.Add("STEREO_INSTANCING_ON");
             globalBreadcrumbs.SetAvailableKeywords(globalKeywordsList);
+#if HAVE_LOCAL_KEYWORDS
             localBreadcrumbs.SetAvailableKeywords(localKeywords.ToList());
+#endif
             
             // fetch the entire preprocessed file
             CompileShader(shader, false);
@@ -419,15 +493,20 @@ namespace Needle.Rendering.Editor
             {
                 // read entire file into memory, and parse it one by one - might change between Unity versions
                 var lines = File.ReadAllLines(expectedFilePath);
-
+                Debug.Log("Total Line Count: " + lines.Length);
+                
                 var variants = new List<Variant>();
                 var currentVariant = default(Variant);
                 var currentFileSection = default(FileSection);
                 var currentLineIndex = 0;
 
                 const string SeparatorLine = @"//////////////////////////////////////////////////////";
+#if !HAVE_LOCAL_KEYWORDS
+                const string GlobalKeywordsStart = @"Keywords: ";
+#else
                 const string GlobalKeywordsStart = @"Global Keywords: ";
                 const string LocalkeywordsStart = @"Local Keywords: ";
+#endif
                 const string LineStart = @"#line ";
 
                 var sb = new StringBuilder();
@@ -440,9 +519,9 @@ namespace Needle.Rendering.Editor
                         variants.Add(new Variant());
                         currentVariant = variants.Last();
                         currentVariant.globalKeywords = lines[i + 1].Substring(GlobalKeywordsStart.Length).Trim();
-                        var local = lines[i + 2].Substring(LocalkeywordsStart.Length).Trim();
-                        currentVariant.localKeywords  = local.Contains("<none>") ? null : local;
-                        
+#if HAVE_LOCAL_KEYWORDS
+                        currentVariant.localKeywords  = lines[i + 2].Substring(LocalkeywordsStart.Length).Trim();
+#endif
                         // reset file section so that all lines from here are appended directly
                         var fileSection = new FileSection() {fileName = "Details", fileNameDisplay = "Details"};
                         currentFileSection = fileSection;
@@ -503,10 +582,12 @@ namespace Needle.Rendering.Editor
                 // }
                 // File.WriteAllText("Temp/restoredResult.txt", sb2.ToString());
                 
-                availableVariants = variants;
+                availableVariants = variants.OrderBy(x => x.globalKeywords).ThenBy(x => x.localKeywords).ToList();
                 
                 // select first found keyword combination
+#if HAVE_LOCAL_KEYWORDS
                 localBreadcrumbs.SetSelectedKeywords(variants.First().localKeywords, false);
+#endif
                 globalBreadcrumbs.SetSelectedKeywords(variants.First().globalKeywords, false);
                 KeywordSelectionChanged();
             }

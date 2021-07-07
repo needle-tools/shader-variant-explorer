@@ -1,0 +1,16 @@
+{
+    "name": "Needle.Rendering.Editor.ShaderExplorer",
+    "rootNamespace": "",
+    "references": [],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
