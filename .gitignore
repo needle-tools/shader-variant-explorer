@@ -5,3 +5,4 @@ projects/*/*.sln
 projects/*/*.csproj
 projects/*/.idea
 projects/*/obj
+projects/*/Temp
