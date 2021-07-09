@@ -9,7 +9,6 @@ using System.Reflection;
 using System.Text;
 using UnityEditor;
 using UnityEditor.Rendering;
-using UnityEditor.Toolbars;
 using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -27,10 +26,11 @@ namespace Needle.Rendering.Editor
         [Serializable]
         public class MessageData
         {
-            public string fullMessage;
+            // public string fullMessage;
             public string messageWithoutDetails;
-            public string messageDetails;
+            // public string messageDetails;
             public string sortedKeywords;
+            public ShaderCompilerMessageSeverity messageType;
         }
         
         [Serializable]
@@ -46,7 +46,7 @@ namespace Needle.Rendering.Editor
         public List<Variant> availableVariants;
         public bool collapseLines;
         private ListView errorScrollView, codeScrollView;
-
+        public string preprocessingSearchTerm = "";
         class KeywordBreadcrumbs : ToolbarBreadcrumbs
         {
             // ReSharper disable once InconsistentNaming
@@ -132,6 +132,10 @@ namespace Needle.Rendering.Editor
         private KeywordBreadcrumbs localBreadcrumbs;
 #endif
 
+        public ShaderCompilerPlatform selectedPlatform = ShaderCompilerPlatform.D3D;
+        public BuildTarget selectedBuildTarget = BuildTarget.StandaloneWindows64;
+        public bool autoCompile = false;
+        
         private void OnEnable()
         {
             titleContent = new GUIContent("Shader Variant Explorer");
@@ -153,6 +157,8 @@ namespace Needle.Rendering.Editor
             if(shader)
                 shaderField.value = shader;
             
+            toolbar.Add(shaderField);
+            
             toolbar.Add(new ToolbarButton(() =>
             {
                 SetViewedShader(shader);
@@ -160,29 +166,68 @@ namespace Needle.Rendering.Editor
             
             toolbar.Add(new ToolbarButton(() =>
             {
-                CompileShader(shader, false, false, true);
+                CompileShader(shader, false, false, true, selectedPlatform);
+                FetchAllShaderMessages();
             }) { text = "Compile"});
+
+            // the little dropdown that the Shader inspector shows
+            // var menu = new ToolbarMenu() { text = "Platform Settings" };
+            // menu.RegisterCallback<ClickEvent>(click =>
+            // {
+            //     var popupType = typeof(UnityEditor.EditorWindow).Assembly.GetType("UnityEditor.ShaderInspectorPlatformsPopup");
+            //     var popup = Activator.CreateInstance(popupType, new object[] { shader}, null);
+            //     UnityEditor.PopupWindow.Show(new Rect(click.position.x, click.position.y, 0, 0), (PopupWindowContent) popup);
+            // });
+            // toolbar.Add(menu);
             
-            toolbar.Add(shaderField);
+            VisualElement CreateEnumDropdown<T>(string label, T defaultValue, Action<T> valueChanged, Func<T> currentValue) where T : Enum
+            {
+                var enumOptions = Enum.GetValues(typeof(T)).Cast<T>().Distinct().ToList();
+                
+                // var stringToEnum = enumOptions.ToDictionary(x => x.ToString(), x => x);
+                // var dropdown = new DropdownField(label, stringToEnum.Keys.ToList(), 0, null, null) { value = defaultValue.ToString() };
+                // dropdown.RegisterValueChangedCallback(evt =>
+                // {
+                //     valueChanged(stringToEnum[evt.newValue]);
+                // });
+                // return dropdown;
+
+                var drp2 = new ToolbarMenu() { text = defaultValue.ToString() };
+                drp2.RegisterCallback<ClickEvent>(_ =>
+                {
+                    void Func2(object obj)
+                    {
+                        if (obj is not T sel) return;
+                        valueChanged(sel);
+                        drp2.text = sel.ToString();
+                    }
+                    
+                    var menu = new GenericMenu();
+                    foreach (var opt in enumOptions)
+                    {
+                        menu.AddItem(new GUIContent(opt.ToString()), opt.Equals(currentValue()), Func2, opt);
+                    }
+                    menu.ShowAsContext();
+                });
+                return drp2;
+            }
+            
+            var platformDropdown = CreateEnumDropdown("Platform", selectedPlatform, x => selectedPlatform = x, () => selectedPlatform);
+            var buildTargetDropdown = CreateEnumDropdown("Build Target", selectedBuildTarget, x => selectedBuildTarget = x, () => selectedBuildTarget);
+            
+            toolbar.Add(platformDropdown);
+            toolbar.Add(buildTargetDropdown);
             
             // var search = new ToolbarPopupSearchField();
             // toolbar.Add(search);
 
-            void SelectVariant(object userData)
-            {
-                if (userData is Variant variant)
-                {
-                    globalBreadcrumbs.SetSelectedKeywords(variant.globalKeywords, false);
-#if HAVE_LOCAL_KEYWORDS
-                    localBreadcrumbs.SetSelectedKeywords(variant.localKeywords, false);
-#endif
-                    KeywordSelectionChanged();
-                }
-            }
+            root.Add(toolbar);
+
+            var globalKeywordToolbar = new Toolbar();
             
             var allCombinationSelector = new ToolbarButton(() =>
             {
-                var menu = new GenericMenu();
+                var combinationSelectionMenu = new GenericMenu();
                 foreach (var variant in availableVariants)
                 {
                     var hasLocalKeywords = !string.IsNullOrEmpty(variant.localKeywords);
@@ -200,48 +245,55 @@ namespace Needle.Rendering.Editor
                     }
 
                     variantString = new string(chars).Replace(" ", "  •  ");
-                    menu.AddItem(new GUIContent(variantString + " _"), false, SelectVariant, variant);
+                    combinationSelectionMenu.AddItem(new GUIContent(variantString + " _"), false, SelectVariant, variant);
                 }
-                menu.ShowAsContext();
+                combinationSelectionMenu.ShowAsContext();
             })
             {
                 text = "Select Keyword Combination",
             };
-            toolbar.Add(allCombinationSelector);
-
-            var toggleFileCollapse = new ToolbarToggle()
-            {
-                text = "Collapse Files",
-                value = collapseLines
-            };
-            toggleFileCollapse.RegisterValueChangedCallback(evt =>
-            {
-                collapseLines = evt.newValue;
-                KeywordSelectionChanged();
-            });
-            toolbar.Add(toggleFileCollapse);
-
-
-            var openPreprocesedFileButton = new ToolbarButton(() =>
-            {
-                if(File.Exists(preprocessedFilePath))
-                    UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(preprocessedFilePath, 0);
-            }) {text = "Open Preprocessed File"};
-            toolbar.Add(openPreprocesedFileButton);
+            globalKeywordToolbar.Add(allCombinationSelector);
             
-            root.Add(toolbar);
-
-            var globalKeywordToolbar = new Toolbar();
-            var keywordsText =
-#if HAVE_LOCAL_KEYWORDS
-                "Global Keywords";
-#else
-                "Keywords";
-#endif
-            globalKeywordToolbar.Add(new Label(keywordsText) { style = {width = 100}});
+//             var keywordsText =
+// #if HAVE_LOCAL_KEYWORDS
+//                 "Global Keywords";
+// #else
+//                 "Keywords";
+// #endif
+//             globalKeywordToolbar.Add(new Label(keywordsText) { style = {width = 100}});
             globalBreadcrumbs = new KeywordBreadcrumbs();
-            globalBreadcrumbs.onSelectionChanged += KeywordSelectionChanged;
+            globalBreadcrumbs.onSelectionChanged += () => KeywordSelectionChanged(true);
             globalKeywordToolbar.Add(globalBreadcrumbs);
+
+            var filteredCombinationsSelector = new ToolbarButton(() =>
+            {
+                // from ALL the possible combinations, remove the ones that are already selected here
+                var allKeywordStrings = availableVariants.Select(variant =>
+                {
+                    var hasLocalKeywords = !string.IsNullOrEmpty(variant.localKeywords);
+                    var variantString = variant.globalKeywords + (hasLocalKeywords ? " " + variant.localKeywords : "");
+                    return new HashSet<string>(variantString.Split(' '));
+                });
+                
+                // selected global/local keywords
+                var selectedKeywords = new HashSet<string>(globalBreadcrumbs.SelectedKeywords);
+                // TODO add for local
+                
+                // find the keyword hashsets that contain all the selected keywords
+                var remainingChoosableKeywords = allKeywordStrings
+                    .Where(x => x.IsProperSupersetOf(selectedKeywords));
+
+                var remainingOptionsMenu = new GenericMenu();
+                foreach (var set in remainingChoosableKeywords)
+                {
+                    remainingOptionsMenu.AddItem(new GUIContent(string.Join(" • ", set.Except(selectedKeywords))), false, SelectVariant, set);
+                }
+                remainingOptionsMenu.ShowAsContext();
+            })
+            {
+                text = "Select Filtered Combination"
+            };
+            globalKeywordToolbar.Add(filteredCombinationsSelector);
             
             root.Add(globalKeywordToolbar);
 
@@ -268,7 +320,7 @@ namespace Needle.Rendering.Editor
 #endif
                 makeItem = () =>
                 {
-                    Debug.Log("Making Item");
+                    // Debug.Log("Making Item");
                     var v = new VisualElement() {
                         style = {flexDirection = FlexDirection.Column}
                     };
@@ -285,7 +337,9 @@ namespace Needle.Rendering.Editor
                 bindItem = (element, i) =>
                 {
                     var error = (listViewData && i < listViewData.messages.Count && i >= 0) ? listViewData.messages[i] : null;
-                    element.Q<Label>("Message").text = error?.messageWithoutDetails ?? "(no message)";
+                    var label = element.Q<Label>("Message");
+                    label.text = error?.messageWithoutDetails ?? "(no message)";
+                    label.style.color = error?.messageType == ShaderCompilerMessageSeverity.Error ? Color.red : Color.yellow;
                     element.Q<Label>("Keywords").text = error?.sortedKeywords ?? "(no keywords)";
                 },
                 bindingPath = nameof(ListViewData.messages),
@@ -298,11 +352,26 @@ namespace Needle.Rendering.Editor
                 },
                 showBoundCollectionSize = false,
             };
-            errorScrollView.onItemsChosen += objects =>
+            errorScrollView.onItemsChosen += _ =>
             {
                 var msg = listViewData.messages[errorScrollView.selectedIndex];
                 globalBreadcrumbs.SetSelectedKeywords(msg.sortedKeywords, true);
             };
+            errorScrollView.RegisterCallback<ContextClickEvent>(_ =>
+            {
+                var contextMenu = new GenericMenu();
+                contextMenu.AddItem(new GUIContent("Clear messages for this shader"), false, () =>
+                {
+                    ShaderUtil.ClearShaderMessages(shader);
+                    FetchAllShaderMessages();
+                });
+                contextMenu.AddItem(new GUIContent("Clear all cached data for shader"), false, () =>
+                {
+                    ShaderUtil.ClearCachedData(shader);
+                    FetchAllShaderMessages();
+                });
+                contextMenu.ShowAsContext();
+            });
             
             tempDataSerializedObject = new SerializedObject(listViewData);
             errorScrollView.Bind(tempDataSerializedObject);
@@ -310,6 +379,60 @@ namespace Needle.Rendering.Editor
 
             var horizontalSplit = new TwoPaneSplitView(0, 400, TwoPaneSplitViewOrientation.Horizontal);
 
+            // toolbar for preprocessing
+            var preprocessingToolbar = new Toolbar();
+            void SelectVariant(object userData)
+            {
+                if (userData is Variant variant)
+                {
+                    globalBreadcrumbs.SetSelectedKeywords(variant.globalKeywords, false);
+#if HAVE_LOCAL_KEYWORDS
+                    localBreadcrumbs.SetSelectedKeywords(variant.localKeywords, false);
+#endif
+                    KeywordSelectionChanged(true);
+                }
+
+                if (userData is HashSet<string> set)
+                {
+                    globalBreadcrumbs.SetSelectedKeywords(set.ToList(), false);
+                    KeywordSelectionChanged(true);
+                }
+            }
+
+            var toggleFileCollapse = new ToolbarToggle()
+            {
+                text = "Collapse Files",
+                value = collapseLines
+            };
+            toggleFileCollapse.RegisterValueChangedCallback(evt =>
+            {
+                collapseLines = evt.newValue;
+                KeywordSelectionChanged(false);
+            });
+            preprocessingToolbar.Add(toggleFileCollapse);
+
+
+            var openPreprocessedFileButton = new ToolbarButton(() =>
+            {
+                if(File.Exists(preprocessedFilePath))
+                    UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(preprocessedFilePath, 0);
+            }) {text = "Open Preprocessed File"};
+            preprocessingToolbar.Add(openPreprocessedFileButton);
+
+            var spacer = new VisualElement() { style = { flexGrow = 1 } };
+            preprocessingToolbar.Add(spacer);
+            var preprocessingSearch = new ToolbarSearchField() { style = { minWidth = 50, flexShrink = 50} };
+            preprocessingSearch.RegisterValueChangedCallback(evt =>
+            {
+                preprocessingSearchTerm = evt.newValue;
+                KeywordSelectionChanged(false);
+            });
+            preprocessingToolbar.Add(preprocessingSearch);
+            
+            var leftPane = new VisualElement();
+            horizontalSplit.Add(leftPane);
+            leftPane.Add(preprocessingToolbar);
+            
             codeScrollView = new ListView()
             {
 #if HAVE_LOCAL_KEYWORDS
@@ -348,7 +471,7 @@ namespace Needle.Rendering.Editor
                     {
                         overflow = Overflow.Hidden, 
                         color = new Color(1,1,1,0.5f),
-                        unityTextAlign = TextAnchor.LowerRight,
+                        unityTextAlign = TextAnchor.MiddleRight,
                     }});
                     return v;
                 },
@@ -359,9 +482,15 @@ namespace Needle.Rendering.Editor
                     element.Q<Label>("LineIndex").text = error?.lineIndex.ToString("000000") ?? "------";
                     element.Q<Label>("LineContent").text = error?.lineContent ?? "(empty)";
                     element.Q<Label>("File").text = error?.fileNameDisplay ?? "";
+                    element.style.opacity = (error?.isPartOfSearchResults ?? true) ? 1 : 0.5f;
                 },
                 bindingPath = nameof(listViewData.sections),
                 showBoundCollectionSize = false,
+                style = {
+                    flexGrow = 1,
+                    minHeight = StyleKeyword.Auto,
+                    maxHeight = StyleKeyword.Auto,
+                }
             };
             codeScrollView.Bind(tempDataSerializedObject);
 
@@ -387,15 +516,15 @@ namespace Needle.Rendering.Editor
                 lineIndex = listViewData.sections[selectedIndex].lineIndex;
             }
             
-            codeScrollView.onItemsChosen += objects =>
+            codeScrollView.onItemsChosen += _ =>
             {
-                GetFileAndLineIndex(codeScrollView.selectedIndex, out string file, out int occurence, out int lineIndex);
+                GetFileAndLineIndex(codeScrollView.selectedIndex, out string file, out int _, out int lineIndex);
                 Debug.Log("File: " + file + ", line: " + lineIndex);
                 
                 if(File.Exists(file))
                     UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(file, lineIndex);
             };
-            codeScrollView.onSelectionChange += objects =>
+            codeScrollView.onSelectionChange += _ =>
             {
                 GetFileAndLineIndex(codeScrollView.selectedIndex, out string file, out int fileOccurence, out int lineIndex);
                 // Debug.Log("File: " + file + ", line: " + lineIndex);
@@ -403,36 +532,28 @@ namespace Needle.Rendering.Editor
                 selectedFileOccurence = fileOccurence;
                 selectedLineIndex = lineIndex;
             };
-            horizontalSplit.Add(codeScrollView);
+            leftPane.Add(codeScrollView);
+
+            var rightPane = new VisualElement();
+            horizontalSplit.Add(rightPane);
+            var compilationToolbar = new Toolbar();
+            rightPane.Add(compilationToolbar);
             var compileScrollView = new VisualElement();
             var outputLabel = new ScrollView() {name = "CompilerOutput"};
+
+            var autoCompileToggle = new ToolbarToggle() { text = "Auto Compile", value = autoCompile };
+            autoCompileToggle.RegisterValueChangedCallback(evt =>
+            {
+                autoCompile = evt.newValue;
+                CompileSpecificVariantIfAutoCompileIsOn();
+            });
+
+            void CompileSpecificVariantIfAutoCompileIsOn()
+            {
+                if(autoCompile) CompileSpecificVariant();
+            }
             
-            var selectedPlatform = ShaderCompilerPlatform.D3D;
-            var platformOptionsArray = Enum.GetValues(typeof(ShaderCompilerPlatform)).Cast<ShaderCompilerPlatform>().Distinct().ToList();
-            var platformOptionsDict = platformOptionsArray.ToDictionary(x => x.ToString(), x => x);
-            var platformDropdown = new DropdownField("Platform", platformOptionsDict.Keys.ToList(), 0, null, null) { value = selectedPlatform.ToString() };
-            platformDropdown.RegisterValueChangedCallback(evt =>
-            {
-                selectedPlatform = platformOptionsDict[evt.newValue];
-            });
-
-            var selectedBuildTarget = BuildTarget.StandaloneWindows64;
-            var buildTargetArray = Enum.GetValues(typeof(BuildTarget)).Cast<BuildTarget>().Distinct().ToList();
-            var buildTargetDict = buildTargetArray.ToDictionary(x => x.ToString(), x => x);
-            var buildTargetDropdown = new DropdownField("Build Target", buildTargetDict.Keys.ToList(), 0, null, null) { value = selectedBuildTarget.ToString() };
-            buildTargetDropdown.RegisterValueChangedCallback(evt =>
-            {
-                selectedBuildTarget = buildTargetDict[evt.newValue];
-            });
-
-            // var dropdowns = new VisualElement() {style = {flexDirection = FlexDirection.Column}};
-            // dropdowns.Add(platformDropdown);
-            // dropdowns.Add(buildTargetDropdown);
-            // compileScrollView.Add(dropdowns);
-            compileScrollView.Add(platformDropdown);
-            compileScrollView.Add(buildTargetDropdown);
-
-            compileScrollView.Add(new Button(() =>
+            void CompileSpecificVariant()
             {
                 if (!shader) return;
                 var keywords = globalBreadcrumbs.SelectedKeywords.ToArray();
@@ -441,12 +562,8 @@ namespace Needle.Rendering.Editor
                 var shaderData = ShaderUtil.GetShaderData(shader);
                 outputLabel.Add(new Label("Subshaders [" + shaderData.SubshaderCount + "]"));
                 outputLabel.Add(new Label("Keywords:\n    " + string.Join(" • ", keywords)));
-                // for (int i = 0; i < shaderData.SubshaderCount; i++)
-                // {
-                //     var subShader = shaderData.GetSubshader(i);
-                //     outputLabel.Add(new Label("[Subshader " + i + ": " + subShader.PassCount + " passes]"));
-                // }
-                // outputLabel.Add(new Label("----"));
+                outputLabel.Add(new Label("Platform: " + selectedPlatform + "\n" + "Build Target: " + selectedBuildTarget));
+                
                 for (int i = 0; i < shaderData.SubshaderCount; i++)
                 {
                     var subShader = shaderData.GetSubshader(i);
@@ -469,7 +586,7 @@ namespace Needle.Rendering.Editor
                             // var compileInfo = pass.CompileVariant(shaderType, keywords, ShaderCompilerPlatform.D3D, BuildTarget.StandaloneWindows64, GraphicsTier.Tier1);
                             var compileInfo = pass.CompileVariant(shaderType, keywords, selectedPlatform, selectedBuildTarget, GraphicsTier.Tier1);
                             if(compileInfo.Messages.Length > 0)
-                                outputLabel.Add(new Label("Messages [" + compileInfo.Messages.Length + "]:\n" + string.Join("\n", compileInfo.Messages.Select(ToMessageString))));
+                                outputLabel.Add(new Label("Messages [" + compileInfo.Messages.Length + "]:\n" + string.Join("\n", compileInfo.Messages.Select(ToMessageString))) { style = { color = Color.yellow }});
                             if (compileInfo.ShaderData.Length > 0)
                             {
                                 outputLabel.Add(new Label("<b>" + shaderType + "</b>"));
@@ -478,34 +595,56 @@ namespace Needle.Rendering.Editor
                         }
                     }
                 }
-            }) { text = "Compile selected keyword combination"});
+                FetchAllShaderMessages();
+            }
+            
+            OnKeywordSelectionChanged -= CompileSpecificVariantIfAutoCompileIsOn;
+            OnKeywordSelectionChanged += CompileSpecificVariantIfAutoCompileIsOn;
+            
+            compilationToolbar.Add(autoCompileToggle);
+            compilationToolbar.Add(new ToolbarButton(CompileSpecificVariant) { text = "Compile selected keyword combination"});
             compileScrollView.Add(outputLabel);
-            horizontalSplit.Add(compileScrollView);
+            rightPane.Add(compileScrollView);
             verticalSplit.Add(horizontalSplit);
+            
+            // actual initialization
+            FetchAllShaderMessages();
         }
 
         private string selectedFile;
         private int selectedFileOccurence;
         private int selectedLineIndex;
+
+        private delegate void KeywordSelectionChangedEvent();
+        private static event KeywordSelectionChangedEvent OnKeywordSelectionChanged;
         
-        private void KeywordSelectionChanged()
+        private void KeywordSelectionChanged(bool notify)
         {
+            var haveSearch = !string.IsNullOrEmpty(preprocessingSearchTerm.Trim());
             var sections = availableVariants.FirstOrDefault(x =>
-                    x.globalKeywords == globalBreadcrumbs.GetSortedKeywordString()
+                        x.globalKeywords == globalBreadcrumbs.GetSortedKeywordString()
 #if HAVE_LOCAL_KEYWORDS
                     && x.localKeywords == localBreadcrumbs.GetSortedKeywordString()
 #endif
                 )?
                 .mapping
                 .SelectMany(x => x.lines)
-                .Where(x => !collapseLines || x.fileSectionStart != null);
+                .Where(x => !collapseLines || x.fileSectionStart != null)
+                .Where(x =>
+                {
+                    x.isPartOfSearchResults = !haveSearch || x.lineContent.IndexOf(preprocessingSearchTerm, StringComparison.InvariantCultureIgnoreCase) > -1;
+                    return !haveSearch || x.fileSectionStart != null || x.isPartOfSearchResults;
+                });
             listViewData.sections = sections?.ToList();
             tempDataSerializedObject.Update();
             
-            Debug.Log("Total number of lines in variant: " + listViewData.sections?.Count);
+            // Debug.Log("Total number of lines in variant: " + listViewData.sections?.Count);
             
             // make sure the right ListView index is selected
             SetListViewSelection(selectedFile, selectedFileOccurence, selectedLineIndex);
+            
+            if(notify)
+                OnKeywordSelectionChanged?.Invoke();
         }
 
         private string preprocessedFilePath;
@@ -560,11 +699,11 @@ namespace Needle.Rendering.Editor
             // TODO could be a local package, we could still rewrite as Packages/ path
             return absolutePath;
         }
-        
-        void SetViewedShader(Shader selectedShader)
-        {
-            shader = selectedShader;
 
+        void FetchAllShaderMessages()
+        {
+            if (!shader) return;
+            
             // fetch all compilation error messages
             int shaderMessageCount = ShaderUtil.GetShaderMessageCount(shader);
             var shaderMessages = (ShaderMessage[]) null;
@@ -573,38 +712,46 @@ namespace Needle.Rendering.Editor
 
             if (shaderMessages != null)
             {
-                var allErrors = shaderMessages
-                    .Where(x => x.severity == ShaderCompilerMessageSeverity.Error);
+                var allMessages = shaderMessages
+                    .Where(x => x.severity == ShaderCompilerMessageSeverity.Error || x.severity == ShaderCompilerMessageSeverity.Warning);
                 
                 listViewData.messages.Clear();
-                listViewData.messages.AddRange(allErrors.Select(x => new MessageData()
+                listViewData.messages.AddRange(allMessages.Select(x => new MessageData()
                 {
-                   fullMessage = ToMessageString(x),
-                   messageWithoutDetails = ToMessageStringWithoutDetails(x),
-                   sortedKeywords = SortedKeywords(x),
+                    messageType = x.severity,
+                    // fullMessage = ToMessageString(x),
+                    messageWithoutDetails = ToMessageStringWithoutDetails(x),
+                    sortedKeywords = SortedKeywords(x),
                 }));
-                // Debug.Log("Number of messages: " + tempData.messages.Count);
-                tempDataSerializedObject.Update();
             }
             else
             {
-                // Debug.Log("No Shader Messages for " + shader, shader);
+                listViewData.messages.Clear();
             }
-
+            tempDataSerializedObject.Update();
+        }
+        
+        void SetViewedShader(Shader selectedShader)
+        {
+            shader = selectedShader;
+            FetchAllShaderMessages();
+            
             // fetch local and global keywords for this shader
             // get shader info
             GetShaderDetails(shader, out var variantCount, out string[] localKeywords, out string[] globalKeywords);
+            
             var globalKeywordsList = globalKeywords.ToList();
-            // not sure why this has to be added (doesn't show in the keyword list returned by Unity); potentially others have to be added as well?
+            // TODO not sure why this has to be added (doesn't show in the keyword list returned by Unity); potentially others have to be added as well?
             globalKeywordsList.Add("STEREO_INSTANCING_ON");
             globalKeywordsList.Add("INSTANCING_ON");
+            
             globalBreadcrumbs.SetAvailableKeywords(globalKeywordsList);
 #if HAVE_LOCAL_KEYWORDS
             localBreadcrumbs.SetAvailableKeywords(localKeywords.ToList());
 #endif
             
             // fetch the entire preprocessed file
-            CompileShader(shader, false, true, false);
+            CompileShader(shader, false, true, false, selectedPlatform);
             
             // check if file exists:
             preprocessedFilePath = "Temp/Preprocessed-" + shader.name.Replace('/', '-').Replace('\\', '-') + ".shader";
@@ -612,7 +759,7 @@ namespace Needle.Rendering.Editor
             {
                 // read entire file into memory, and parse it one by one - might change between Unity versions
                 var lines = File.ReadAllLines(preprocessedFilePath);
-                Debug.Log("Total Line Count: " + lines.Length);
+                // Debug.Log("Total Line Count: " + lines.Length);
                 
                 var variants = new List<Variant>();
                 var currentVariant = default(Variant);
@@ -713,7 +860,7 @@ namespace Needle.Rendering.Editor
                 Debug.Log("ShaderUtil variants: " + variantCount + ", Total variants in preprocessed file: " + variants.Count);
                 
                 // Write back out for debugging
-                File.WriteAllText("Temp/processingResult.txt", sb.ToString());
+                // File.WriteAllText("Temp/processingResult.txt", sb.ToString());
                 //
                 // var sb2 = new StringBuilder();
                 // foreach (var v in variants)
@@ -730,7 +877,7 @@ namespace Needle.Rendering.Editor
                 localBreadcrumbs.SetSelectedKeywords(variants.First().localKeywords, false);
 #endif
                 globalBreadcrumbs.SetSelectedKeywords(variants.FirstOrDefault()?.globalKeywords, false);
-                KeywordSelectionChanged();
+                KeywordSelectionChanged(true);
             }
         }
 
@@ -741,6 +888,7 @@ namespace Needle.Rendering.Editor
             public int lineIndex;
             public string fileSectionStart;
             public string fileNameDisplay;
+            public bool isPartOfSearchResults;
         }
 
         [Serializable]
@@ -781,18 +929,60 @@ namespace Needle.Rendering.Editor
         private static MethodInfo OpenCompiledShader;
         private static MethodInfo GetVariantCount, GetShaderGlobalKeywords, GetShaderLocalKeywords;
         // ReSharper restore InconsistentNaming
+
+        // private static List<string> s_ShaderPlatformNames = new List<string>();
+        // private static List<int> s_ShaderPlatformIndices = new List<int>();
+        // private static void InitializeShaderPlatforms()
+        // {
+        //     if (s_ShaderPlatformNames != null && s_ShaderPlatformNames.Any())
+        //         return;
+        //     int compilerPlatforms = (int) (typeof(ShaderUtil).GetMethod("GetAvailableShaderCompilerPlatforms", (BindingFlags)(-1))?.Invoke(null, null) ?? 0);
+        //     List<string> stringList = new List<string>();
+        //     List<int> intList = new List<int>();
+        //     for (int index = 0; index < 32; ++index)
+        //     {
+        //         if ((compilerPlatforms & 1 << index) != 0)
+        //         {
+        //             stringList.Add(((ShaderCompilerPlatform) index).ToString());
+        //             intList.Add(index);
+        //         }
+        //     }
+        //     s_ShaderPlatformNames = stringList;
+        //     s_ShaderPlatformIndices = intList;
+        // }
         
-        private static void CompileShader(Shader theShader, bool includeAllVariants, bool preprocessOnly, bool stripLineDirectives)
+        private static void CompileShader(Shader theShader, bool includeAllVariants, bool preprocessOnly, bool stripLineDirectives, ShaderCompilerPlatform shaderCompilerPlatform)
         {
             // ShaderUtil.OpenCompiledShader
             if (OpenCompiledShader == null) OpenCompiledShader = typeof(ShaderUtil).GetMethod("OpenCompiledShader", BindingFlags.NonPublic | BindingFlags.Static);
 
+            // 262144
             int shaderCompilerPlatformMask = (1 << Enum.GetNames(typeof(ShaderCompilerPlatform)).Length - 1);
+            int mode = 2;
+            if (shaderCompilerPlatform != ShaderCompilerPlatform.None)
+            {
+                shaderCompilerPlatformMask = 1 << (int) shaderCompilerPlatform;
+                mode = 3;
+            }
+            
+            // InitializeShaderPlatforms();
+            // shaderCompilerPlatformMask = 1 << s_ShaderPlatformIndices[s_ShaderPlatformNames.IndexOf(shaderCompilerPlatform.ToString())];
+            
+            // Debug.Log(shaderCompilerPlatformMask);
+            
+            // get values from the ShaderInspectorPlatformsPopup
+            // var sipp = typeof(EditorWindow).Assembly.GetType("UnityEditor.ShaderInspectorPlatformsPopup");
+            // var currentMode = (int) (sipp.GetProperty("currentMode", (BindingFlags)(-1))?.GetValue(null) ?? 2);
+            // var currentPlatformMask = (int) (sipp.GetProperty("currentPlatformMask", (BindingFlags)(-1))?.GetValue(null) ?? shaderCompilerPlatformMask);
+            // Debug.Log(currentMode + ", " + currentPlatformMask);
+            
             OpenCompiledShader?.Invoke(null, new object[] // internal static extern void OpenCompiledShader(..)
             {
                 theShader, // shader
-                2, // mode; 1: Current  Platform; 2: All Platforms
+                mode, // mode; 1: Current  Platform; 2: All Platforms, 3: Custom: use externPlatformsMask
                 shaderCompilerPlatformMask, // externPlatformsMask
+                // currentMode,
+                // currentPlatformMask,
                 includeAllVariants, // includeAllVariants
                 preprocessOnly, // preprocessOnly
                 stripLineDirectives // stripLineDirectives
@@ -825,9 +1015,9 @@ namespace Needle.Rendering.Editor
             var splitMsgDetails = msg.messageDetails.Split('\n');
             if(!splitMsgDetails.Any()) return msg.messageDetails;
             var firstDetail = splitMsgDetails.First();
-            const string sss ="Compiling Vertex program with ";
-            if(firstDetail.IndexOf(sss, StringComparison.Ordinal) > 0)
-                return firstDetail.Substring(sss.Length);
+            const string searchString ="Compiling Vertex program with ";
+            if(firstDetail.IndexOf(searchString, StringComparison.Ordinal) > 0)
+                return firstDetail.Substring(searchString.Length);
             return firstDetail;
         }
         private string ToMessageStringWithoutDetails(ShaderMessage msg) => $"[{msg.severity}] (on {msg.platform}): {Path.GetFileName(msg.file)}:{msg.line} - {msg.message}";
