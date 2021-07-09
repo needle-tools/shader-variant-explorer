@@ -291,7 +291,7 @@ namespace Needle.Rendering.Editor
                 var remainingOptionsMenu = new GenericMenu();
                 foreach (var set in remainingChoosableKeywords)
                 {
-                    remainingOptionsMenu.AddItem(new GUIContent(string.Join(" • ", set.Except(selectedKeywords))), false, SelectVariant, set);
+                    remainingOptionsMenu.AddItem(new GUIContent(string.Join(" • ", set.Except(selectedKeywords)) + " _"), false, SelectVariant, set);
                 }
                 remainingOptionsMenu.ShowAsContext();
             })
@@ -639,11 +639,17 @@ namespace Needle.Rendering.Editor
         private void KeywordSelectionChanged(bool notify)
         {
             var haveSearch = !string.IsNullOrEmpty(preprocessingSearchTerm.Trim());
-            var sections = availableVariants.FirstOrDefault(x =>
-                        x.globalKeywords == globalBreadcrumbs.GetSortedKeywordString()
+            var sections = availableVariants
+                .FirstOrDefault(x =>
+                    {
+                        // Debug.Log(x.globalKeywords + " ==> " + globalBreadcrumbs.GetSortedKeywordString());
+                        var result = x.globalKeywords == globalBreadcrumbs.GetSortedKeywordString()
 #if HAVE_LOCAL_KEYWORDS
-                    && x.localKeywords == localBreadcrumbs.GetSortedKeywordString()
+                        && x.localKeywords == localBreadcrumbs.GetSortedKeywordString()
 #endif
+                            ;
+                        return result;
+                    }
                 )?
                 .mapping
                 .SelectMany(x => x.lines)
@@ -773,6 +779,7 @@ namespace Needle.Rendering.Editor
             // TODO not sure why this has to be added (doesn't show in the keyword list returned by Unity); potentially others have to be added as well?
             globalKeywordsList.Add("STEREO_INSTANCING_ON");
             globalKeywordsList.Add("INSTANCING_ON");
+            globalKeywordsList.Add("PROCEDURAL_INSTANCING_ON");
             
             globalBreadcrumbs.SetAvailableKeywords(globalKeywordsList);
 #if HAVE_LOCAL_KEYWORDS
