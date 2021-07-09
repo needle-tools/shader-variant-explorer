@@ -23,7 +23,7 @@ namespace Needle.Rendering.Editor
     {
         public Shader shader;
         
-        [MenuItem("Needle/Shader Variant Explorer")]
+        [MenuItem("Window/Analysis/Shader Variant Explorer")]
         static void ShowNow() => GetWindow<ShaderVariantExplorer>().Show();
 
         [Serializable]
