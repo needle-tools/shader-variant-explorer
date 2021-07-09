@@ -856,6 +856,14 @@ namespace Needle.Rendering.Editor
                             currentFileSection = fileSection;
                             currentLineIndex = numberIndex;
                             currentVariant.mapping.Add(fileSection);
+                            
+                            currentFileSection.lines.Add(new LineSection()
+                            {
+                                lineContent = "", 
+                                lineIndex = currentLineIndex,
+                                fileSectionStart = currentFileSection.fileName,
+                                fileNameDisplay = currentFileSection.fileNameDisplay,
+                            });
                         }
                         else
                         {
