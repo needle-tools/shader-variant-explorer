@@ -310,7 +310,6 @@ namespace Needle.Rendering.Editor
             {
                 style = {height = 10000}
             };
-            root.Add(verticalSplit);
             
             errorScrollView = new ListView() {
 #if HAVE_LOCAL_KEYWORDS
@@ -375,7 +374,6 @@ namespace Needle.Rendering.Editor
             
             tempDataSerializedObject = new SerializedObject(listViewData);
             errorScrollView.Bind(tempDataSerializedObject);
-            verticalSplit.Add(errorScrollView);
 
             var horizontalSplit = new TwoPaneSplitView(0, 400, TwoPaneSplitViewOrientation.Horizontal);
 
@@ -410,8 +408,7 @@ namespace Needle.Rendering.Editor
                 KeywordSelectionChanged(false);
             });
             preprocessingToolbar.Add(toggleFileCollapse);
-
-
+            
             var openPreprocessedFileButton = new ToolbarButton(() =>
             {
                 if(File.Exists(preprocessedFilePath))
@@ -430,8 +427,6 @@ namespace Needle.Rendering.Editor
             preprocessingToolbar.Add(preprocessingSearch);
             
             var leftPane = new VisualElement();
-            horizontalSplit.Add(leftPane);
-            leftPane.Add(preprocessingToolbar);
             
             codeScrollView = new ListView()
             {
@@ -532,12 +527,9 @@ namespace Needle.Rendering.Editor
                 selectedFileOccurence = fileOccurence;
                 selectedLineIndex = lineIndex;
             };
-            leftPane.Add(codeScrollView);
 
             var rightPane = new VisualElement();
-            horizontalSplit.Add(rightPane);
             var compilationToolbar = new Toolbar();
-            rightPane.Add(compilationToolbar);
             var compileScrollView = new VisualElement();
             var outputLabel = new ScrollView() {name = "CompilerOutput"};
 
@@ -604,8 +596,20 @@ namespace Needle.Rendering.Editor
             compilationToolbar.Add(autoCompileToggle);
             compilationToolbar.Add(new ToolbarButton(CompileSpecificVariant) { text = "Compile selected keyword combination"});
             compileScrollView.Add(outputLabel);
+            
+            leftPane.Add(preprocessingToolbar);
+            leftPane.Add(codeScrollView);
+
+            rightPane.Add(compilationToolbar);
             rightPane.Add(compileScrollView);
+            
+            horizontalSplit.Add(leftPane);
+            horizontalSplit.Add(rightPane);
+            
+            verticalSplit.Add(errorScrollView);
             verticalSplit.Add(horizontalSplit);
+            
+            root.Add(verticalSplit);
             
             // actual initialization
             FetchAllShaderMessages();
@@ -735,7 +739,12 @@ namespace Needle.Rendering.Editor
         {
             shader = selectedShader;
             FetchAllShaderMessages();
-            
+
+            if (!shader)
+            {
+                Debug.LogWarning("Select a shader first.");
+                return;
+            }
             // fetch local and global keywords for this shader
             // get shader info
             GetShaderDetails(shader, out var variantCount, out string[] localKeywords, out string[] globalKeywords);
