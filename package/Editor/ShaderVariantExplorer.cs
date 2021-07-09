@@ -1,6 +1,9 @@
 #if !UNITY_2021_1_OR_NEWER
 #define HAVE_LOCAL_KEYWORDS
 #endif
+#if UNITY_2021_2_OR_NEWER
+#define VARIANT_COMPILER
+#endif
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -197,9 +200,11 @@ namespace Needle.Rendering.Editor
                 {
                     void Func2(object obj)
                     {
-                        if (obj is not T sel) return;
-                        valueChanged(sel);
-                        drp2.text = sel.ToString();
+                        if (obj is T sel)
+                        {
+                            valueChanged(sel);
+                            drp2.text = sel.ToString();
+                        }
                     }
                     
                     var menu = new GenericMenu();
@@ -301,7 +306,7 @@ namespace Needle.Rendering.Editor
             var localKeywordToolbar = new Toolbar();
             localKeywordToolbar.Add(new Label("Local Keywords ") { style = {width = 100}});
             localBreadcrumbs = new KeywordBreadcrumbs();
-            localBreadcrumbs.onSelectionChanged += KeywordSelectionChanged;
+            localBreadcrumbs.onSelectionChanged += () => KeywordSelectionChanged(true);
             localKeywordToolbar.Add(localBreadcrumbs);
             root.Add(localKeywordToolbar);
 #endif
@@ -374,8 +379,6 @@ namespace Needle.Rendering.Editor
             
             tempDataSerializedObject = new SerializedObject(listViewData);
             errorScrollView.Bind(tempDataSerializedObject);
-
-            var horizontalSplit = new TwoPaneSplitView(0, 400, TwoPaneSplitViewOrientation.Horizontal);
 
             // toolbar for preprocessing
             var preprocessingToolbar = new Toolbar();
@@ -528,6 +531,7 @@ namespace Needle.Rendering.Editor
                 selectedLineIndex = lineIndex;
             };
 
+#if VARIANT_COMPILER
             var rightPane = new VisualElement();
             var compilationToolbar = new Toolbar();
             var compileScrollView = new VisualElement();
@@ -593,21 +597,31 @@ namespace Needle.Rendering.Editor
             OnKeywordSelectionChanged -= CompileSpecificVariantIfAutoCompileIsOn;
             OnKeywordSelectionChanged += CompileSpecificVariantIfAutoCompileIsOn;
             
+            // UI Composition
+            
             compilationToolbar.Add(autoCompileToggle);
             compilationToolbar.Add(new ToolbarButton(CompileSpecificVariant) { text = "Compile selected keyword combination"});
             compileScrollView.Add(outputLabel);
             
-            leftPane.Add(preprocessingToolbar);
-            leftPane.Add(codeScrollView);
-
             rightPane.Add(compilationToolbar);
             rightPane.Add(compileScrollView);
+#endif            
+
+            leftPane.Add(preprocessingToolbar);
+            leftPane.Add(codeScrollView);
             
+            verticalSplit.Add(errorScrollView);
+
+#if VARIANT_COMPILER
+            var horizontalSplit = new TwoPaneSplitView(0, 400, TwoPaneSplitViewOrientation.Horizontal);
+
             horizontalSplit.Add(leftPane);
             horizontalSplit.Add(rightPane);
             
-            verticalSplit.Add(errorScrollView);
             verticalSplit.Add(horizontalSplit);
+#else
+            verticalSplit.Add(leftPane);
+#endif
             
             root.Add(verticalSplit);
             
@@ -663,8 +677,14 @@ namespace Needle.Rendering.Editor
 
             void SetSelected()
             {
-                codeScrollView.SetSelection(sectionIndex);
-                codeScrollView.ScrollToId(sectionIndex);    
+                if(listViewData.sections.Count > sectionIndex)
+                {
+                    // TODO figure out why this happens on 2020.3
+                    try {
+                        codeScrollView.SetSelection(sectionIndex);
+                        codeScrollView.ScrollToItem(sectionIndex);
+                    } catch(ArgumentOutOfRangeException) {}
+                }
             }
 
             // codeScrollView.schedule.Execute(SetSelected);
@@ -846,7 +866,11 @@ namespace Needle.Rendering.Editor
                         currentVariant.mapping.Add(fileSection);
                         currentFileSection.lines.Add(new LineSection()
                         {
+#if UNITY_2021_1_OR_NEWER
                             lineContent = "<b>" + shaderType + "</b>",
+#else
+                            lineContent = ">>> " + shaderType, // no rich text support in UIElements in 2020.3
+#endif
                             lineIndex = 0,
                             fileSectionStart = sourceShaderPath,
                             fileNameDisplay = shaderType
