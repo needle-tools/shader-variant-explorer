@@ -1,4 +1,4 @@
-Shader "Custom/StandardSurface"
+Shader "Custom/StandardSurfaceManyVariants"
 {
     Properties
     {

@@ -59,6 +59,13 @@ namespace Needle.Rendering.Editor
             private List<string> selectedKeywords = new List<string>();
 
             public List<string> SelectedKeywords => selectedKeywords;
+            public List<string> AvailableKeywords => availableKeywords;
+
+            private Action<KeywordBreadcrumbs> createMenuItems;
+            public KeywordBreadcrumbs(Action<KeywordBreadcrumbs> createMenuItems) : base()
+            {
+                this.createMenuItems = createMenuItems;
+            }
             
             void AddKeyword(object keyword)
             {
@@ -80,7 +87,7 @@ namespace Needle.Rendering.Editor
                 }
             }
             
-            void AddKeywordMenu()
+            internal void AddKeywordMenu()
             {
                 var menu = new GenericMenu();
                 foreach(var c in availableKeywords) {
@@ -95,7 +102,11 @@ namespace Needle.Rendering.Editor
                 Clear();
                 foreach(var k in selectedKeywords)
                     PushItem(k, () => RemoveKeyword(k));
-                PushItem("+", AddKeywordMenu);
+                
+                if (createMenuItems != null)
+                    createMenuItems(this);
+                else
+                    PushItem("+", AddKeywordMenu);
             }
 
             public void SetSelectedKeywords(List<string> selected, bool notify)
@@ -217,8 +228,16 @@ namespace Needle.Rendering.Editor
                 return drp2;
             }
             
-            var platformDropdown = CreateEnumDropdown("Platform", selectedPlatform, x => selectedPlatform = x, () => selectedPlatform);
-            var buildTargetDropdown = CreateEnumDropdown("Build Target", selectedBuildTarget, x => selectedBuildTarget = x, () => selectedBuildTarget);
+            var platformDropdown = CreateEnumDropdown("Platform", selectedPlatform, x =>
+            {
+                selectedPlatform = x;
+                // CompileSpecificVariantIfAutoCompileIsOn();
+            }, () => selectedPlatform);
+            var buildTargetDropdown = CreateEnumDropdown("Build Target", selectedBuildTarget, x =>
+            {
+                selectedBuildTarget = x;
+                // CompileSpecificVariantIfAutoCompileIsOn();
+            }, () => selectedBuildTarget);
             
             toolbar.Add(platformDropdown);
             toolbar.Add(buildTargetDropdown);
@@ -266,11 +285,11 @@ namespace Needle.Rendering.Editor
 //                 "Keywords";
 // #endif
 //             globalKeywordToolbar.Add(new Label(keywordsText) { style = {width = 100}});
-            globalBreadcrumbs = new KeywordBreadcrumbs();
+            globalBreadcrumbs = new KeywordBreadcrumbs(x => x.PushItem("+", ShowFilteredCombinationsMenu));
             globalBreadcrumbs.onSelectionChanged += () => KeywordSelectionChanged(true);
             globalKeywordToolbar.Add(globalBreadcrumbs);
 
-            var filteredCombinationsSelector = new ToolbarButton(() =>
+            void ShowFilteredCombinationsMenu()
             {
                 // from ALL the possible combinations, remove the ones that are already selected here
                 var allKeywordStrings = availableVariants.Select(variant =>
@@ -288,17 +307,42 @@ namespace Needle.Rendering.Editor
                 var remainingChoosableKeywords = allKeywordStrings
                     .Where(x => x.IsProperSupersetOf(selectedKeywords));
 
+                // find the distinct keywords that could be set next
+                var distinctNextKeywords = remainingChoosableKeywords.SelectMany(x => x.Except(selectedKeywords)).Distinct().ToList();
+                
                 var remainingOptionsMenu = new GenericMenu();
+
+                foreach (var kwd in globalBreadcrumbs.AvailableKeywords.Where(x => distinctNextKeywords.Contains(x)))
+                {
+                    // var exists = distinctNextKeywords.Contains(kwd);
+                    // if (exists)
+                        remainingOptionsMenu.AddItem(new GUIContent(kwd), false, SelectVariant, kwd);
+                    // else
+                        // remainingOptionsMenu.AddDisabledItem(new GUIContent(kwd), false);
+                }
+                
+                remainingOptionsMenu.AddSeparator("");
+                
                 foreach (var set in remainingChoosableKeywords)
                 {
                     remainingOptionsMenu.AddItem(new GUIContent(string.Join(" • ", set.Except(selectedKeywords)) + " _"), false, SelectVariant, set);
                 }
+                
+                remainingOptionsMenu.AddSeparator("");
+                
+                foreach (var kwd in globalBreadcrumbs.AvailableKeywords.Where(x => !distinctNextKeywords.Contains(x)))
+                {
+                    remainingOptionsMenu.AddDisabledItem(new GUIContent("(no combinations left)/" + kwd), false);
+                }
+                
                 remainingOptionsMenu.ShowAsContext();
-            })
-            {
-                text = "Select Filtered Combination"
-            };
-            globalKeywordToolbar.Add(filteredCombinationsSelector);
+            }
+            
+            // var filteredCombinationsSelector = new ToolbarButton(ShowFilteredCombinationsMenu)
+            // {
+            //     text = "Select Filtered Combination"
+            // };
+            // globalKeywordToolbar.Add(filteredCombinationsSelector);
             
             root.Add(globalKeywordToolbar);
 
@@ -396,6 +440,12 @@ namespace Needle.Rendering.Editor
                 if (userData is HashSet<string> set)
                 {
                     globalBreadcrumbs.SetSelectedKeywords(set.ToList(), false);
+                    KeywordSelectionChanged(true);
+                }
+
+                if (userData is string addedKeyword)
+                {
+                    globalBreadcrumbs.SetSelectedKeywords(globalBreadcrumbs.GetSortedKeywordString() + " " + addedKeyword, false);
                     KeywordSelectionChanged(true);
                 }
             }
