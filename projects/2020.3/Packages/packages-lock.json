@@ -1,12 +1,12 @@
 {
   "dependencies": {
-    "com.needle.shader-explorer": {
+    "com.needle.shader-variant-explorer": {
       "version": "file:../../../package",
       "depth": 0,
       "source": "local",
       "dependencies": {}
     },
-    "com.needle.shader-explorer-shared-assets": {
+    "com.needle.shader-variant-explorer-shared-assets": {
       "version": "file:../../SharedAssets",
       "depth": 0,
       "source": "local",

@@ -349,7 +349,7 @@ namespace Needle.Rendering.Editor
 #if HAVE_LOCAL_KEYWORDS
             var localKeywordToolbar = new Toolbar();
             localKeywordToolbar.Add(new Label("Local Keywords ") { style = {width = 100}});
-            localBreadcrumbs = new KeywordBreadcrumbs();
+            localBreadcrumbs = new KeywordBreadcrumbs(null);
             localBreadcrumbs.onSelectionChanged += () => KeywordSelectionChanged(true);
             localKeywordToolbar.Add(localBreadcrumbs);
             root.Add(localKeywordToolbar);
