@@ -102,7 +102,7 @@ namespace Needle.Rendering.Editor
             {
                 selectedKeywords.Clear();
                 if(selected != null)
-                    selectedKeywords.AddRange(selected.Where(availableKeywords.Contains).OrderBy(x => x.TrimStart('_')));
+                    selectedKeywords.AddRange(selected.Where(availableKeywords.Contains));
                 if(notify) onSelectionChanged?.Invoke();
                 BuildBreadcrumbs();
             }
@@ -119,14 +119,14 @@ namespace Needle.Rendering.Editor
 
             public void SetSelectedKeywords(string unsortedKeywords, bool notify)
             {
-                var keywords = unsortedKeywords?.Split(' ').OrderBy(x => x.TrimStart('_')).ToList();
+                var keywords = unsortedKeywords?.Split(' ').ToList();
                 SetSelectedKeywords(keywords, notify);
             }
 
             public string GetSortedKeywordString()
             {
                 if (!selectedKeywords.Any()) return "<none>";
-                return string.Join(" ", selectedKeywords.OrderBy(x => x.TrimStart('_')));
+                return string.Join(" ", selectedKeywords.OrderBy(x => x, StringComparer.Ordinal));
             }
         }
 
