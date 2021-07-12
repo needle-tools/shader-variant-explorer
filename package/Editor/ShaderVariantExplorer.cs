@@ -626,7 +626,9 @@ namespace Needle.Rendering.Editor
                                 shaderCompilationFoldout.RegisterValueChangedCallback(evt => SessionState.SetBool(FoldoutSessionStateEntry, evt.newValue));
                                 outputLabel.Add(shaderCompilationFoldout);
                                 if(compileInfo.TextureBindings.Any()) shaderCompilationFoldout.Add(new Label($"Textures:\n  · {         string.Join("\n  · ", compileInfo.TextureBindings.Select(x => $"{x.Index} {x.Name} {x.Dim}"))}") { style = { marginTop = 10}});
-                                if(compileInfo.ConstantBuffers.Any()) shaderCompilationFoldout.Add(new Label($"Constant Buffers:\n  · { string.Join("\n  · ", compileInfo.ConstantBuffers.Select(x => $"{x.Name} [{x.Size} byte]\n        · {string.Join("\n        · ", x.Fields.Select(x => $"{x.ConstantType} {x.Name} ({x.DataType} {x.Columns}x{x.Rows})"))}"))}") { style = { marginTop = 10}});
+
+                                string ConstantInfoString(ShaderData.ConstantInfo x, string structJoin) => $"{x.ConstantType} {x.Name} " + (x.Columns * x.Rows < 1 ? $"[{x.ArraySize}]" : $"({x.DataType} {x.Columns}x{x.Rows})") + (x.StructSize > 0 ? structJoin + "· " + string.Join(structJoin + "· ", x.StructFields.Select(x => ConstantInfoString(x, structJoin + "    "))) : "");
+                                if(compileInfo.ConstantBuffers.Any()) shaderCompilationFoldout.Add(new Label($"Constant Buffers:\n  · " + string.Join("\n  · ", compileInfo.ConstantBuffers.Select(x => $"{x.Name} [{x.Size} bytes]\n        · " + string.Join("\n        · ", x.Fields.Select(x => ConstantInfoString(x, "\n            ")))))) { style = { marginTop = 10}});
                                 if(compileInfo.Attributes.Any())      shaderCompilationFoldout.Add(new Label($"Vertex Attributes:\n  · {string.Join("\n  · ", compileInfo.Attributes     .Select(x => x.ToString()))}") { style = { marginTop = 10}});
                                 if(compileInfo.ShaderData.Length > 0)
                                 {
