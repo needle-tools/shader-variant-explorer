@@ -197,14 +197,6 @@ namespace Needle.Rendering.Editor
             VisualElement CreateEnumDropdown<T>(string label, T defaultValue, Action<T> valueChanged, Func<T> currentValue) where T : Enum
             {
                 var enumOptions = Enum.GetValues(typeof(T)).Cast<T>().Distinct().ToList();
-                
-                // var stringToEnum = enumOptions.ToDictionary(x => x.ToString(), x => x);
-                // var dropdown = new DropdownField(label, stringToEnum.Keys.ToList(), 0, null, null) { value = defaultValue.ToString() };
-                // dropdown.RegisterValueChangedCallback(evt =>
-                // {
-                //     valueChanged(stringToEnum[evt.newValue]);
-                // });
-                // return dropdown;
 
                 var drp2 = new ToolbarMenu() { text = defaultValue.ToString() };
                 drp2.RegisterCallback<ClickEvent>(_ =>
@@ -241,9 +233,6 @@ namespace Needle.Rendering.Editor
             
             toolbar.Add(platformDropdown);
             toolbar.Add(buildTargetDropdown);
-            
-            // var search = new ToolbarPopupSearchField();
-            // toolbar.Add(search);
 
             root.Add(toolbar);
 
@@ -278,13 +267,6 @@ namespace Needle.Rendering.Editor
             };
             globalKeywordToolbar.Add(allCombinationSelector);
             
-//             var keywordsText =
-// #if HAVE_LOCAL_KEYWORDS
-//                 "Global Keywords";
-// #else
-//                 "Keywords";
-// #endif
-//             globalKeywordToolbar.Add(new Label(keywordsText) { style = {width = 100}});
             globalBreadcrumbs = new KeywordBreadcrumbs(x => x.PushItem("+", ShowFilteredCombinationsMenu));
             globalBreadcrumbs.onSelectionChanged += () => KeywordSelectionChanged(true);
             globalKeywordToolbar.Add(globalBreadcrumbs);
@@ -332,7 +314,7 @@ namespace Needle.Rendering.Editor
                 
                 foreach (var kwd in globalBreadcrumbs.AvailableKeywords.Where(x => !distinctNextKeywords.Contains(x)))
                 {
-                    remainingOptionsMenu.AddDisabledItem(new GUIContent("(no combinations left)/" + kwd), false);
+                    remainingOptionsMenu.AddItem(new GUIContent("(no preprocessed combinations)/" + kwd), false, SelectVariant, kwd);
                 }
                 
                 remainingOptionsMenu.ShowAsContext();
@@ -411,11 +393,6 @@ namespace Needle.Rendering.Editor
                 contextMenu.AddItem(new GUIContent("Clear messages for this shader"), false, () =>
                 {
                     ShaderUtil.ClearShaderMessages(shader);
-                    FetchAllShaderMessages();
-                });
-                contextMenu.AddItem(new GUIContent("Clear all cached data for shader"), false, () =>
-                {
-                    ShaderUtil.ClearCachedData(shader);
                     FetchAllShaderMessages();
                 });
                 contextMenu.ShowAsContext();
@@ -618,11 +595,20 @@ namespace Needle.Rendering.Editor
                     {
                         var pass = subShader.GetPass(j);
                         outputLabel.Add(new Label("Pass: " + (string.IsNullOrEmpty(pass.Name) ? "<none>" : pass.Name)) { style = {paddingTop = 12, fontSize = 16}});
+                        var sourceArea = new VisualElement() { style = { flexDirection = FlexDirection.Row } };
                         var source = pass.SourceCode;
-                        var foldout = new Foldout() {text = "Source Code [" + source.Length + " characters]", value = false};
-                        var sourceCodeLabel = new Label(source.Substring(0, Mathf.Min(source.Length, 15000))) { style = { opacity = 0.7f }};
-                        foldout.Add(sourceCodeLabel);
-                        outputLabel.Add(foldout);
+                        var foldout = new Label() {text = "Source Code [" + source.Length + " characters]" };//, value = false};
+                        // var sourceCodeLabel = new Label(source.Substring(0, Mathf.Min(source.Length, 15000))) { style = { opacity = 0.7f }};
+                        // foldout.Add(sourceCodeLabel);
+                        sourceArea.Add(foldout);
+                        sourceArea.Add(new Button(() =>
+                        {
+                            var tempFile = Path.ChangeExtension(Path.GetTempFileName(), ".shader");
+                            File.WriteAllText(tempFile, source);
+                            UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(tempFile, 0);
+                            
+                        }) { text = "Open as File"});
+                        outputLabel.Add(sourceArea);
 
                         foreach(ShaderType shaderType in Enum.GetValues(typeof(ShaderType)))
                         {
@@ -632,11 +618,27 @@ namespace Needle.Rendering.Editor
                             // var compileInfo = pass.CompileVariant(shaderType, keywords, ShaderCompilerPlatform.D3D, BuildTarget.StandaloneWindows64, GraphicsTier.Tier1);
                             var compileInfo = pass.CompileVariant(shaderType, keywords, selectedPlatform, selectedBuildTarget, GraphicsTier.Tier1);
                             if(compileInfo.Messages.Length > 0)
-                                outputLabel.Add(new Label("Messages [" + compileInfo.Messages.Length + "]:\n" + string.Join("\n", compileInfo.Messages.Select(ToMessageString))) { style = { color = Color.yellow }});
+                                outputLabel.Add(new Label($"Messages [{compileInfo.Messages.Length}]:\n{string.Join("\n", compileInfo.Messages.Select(ToMessageString))}") { style = { color = Color.yellow }});
                             if (compileInfo.ShaderData.Length > 0)
                             {
-                                outputLabel.Add(new Label("<b>" + shaderType + "</b>"));
-                                outputLabel.Add(new Label("Textures:\n" + string.Join("\n", compileInfo.TextureBindings.Select(x => x.Index + " " + x.Name + " " + x.Dim))));
+                                const string FoldoutSessionStateEntry = nameof(ShaderVariantExplorer) + "_" + "shaderCompilationFoldout";
+                                var shaderCompilationFoldout = new Foldout() { text = $"<b>{shaderType}</b> [{compileInfo.ShaderData.Length} bytes]", value = SessionState.GetBool(FoldoutSessionStateEntry, false), style = { marginTop = 5 } };
+                                shaderCompilationFoldout.RegisterValueChangedCallback(evt => SessionState.SetBool(FoldoutSessionStateEntry, evt.newValue));
+                                outputLabel.Add(shaderCompilationFoldout);
+                                if(compileInfo.TextureBindings.Any()) shaderCompilationFoldout.Add(new Label($"Textures:\n  · {         string.Join("\n  · ", compileInfo.TextureBindings.Select(x => $"{x.Index} {x.Name} {x.Dim}"))}") { style = { marginTop = 10}});
+                                if(compileInfo.ConstantBuffers.Any()) shaderCompilationFoldout.Add(new Label($"Constant Buffers:\n  · { string.Join("\n  · ", compileInfo.ConstantBuffers.Select(x => $"{x.Name} [{x.Size} byte]\n        · {string.Join("\n        · ", x.Fields.Select(x => $"{x.ConstantType} {x.Name} ({x.DataType} {x.Columns}x{x.Rows})"))}"))}") { style = { marginTop = 10}});
+                                if(compileInfo.Attributes.Any())      shaderCompilationFoldout.Add(new Label($"Vertex Attributes:\n  · {string.Join("\n  · ", compileInfo.Attributes     .Select(x => x.ToString()))}") { style = { marginTop = 10}});
+                                if(compileInfo.ShaderData.Length > 0)
+                                {
+                                    var openCompiledByteDataArea = new VisualElement() { style = { flexDirection = FlexDirection.Row, marginTop = 10} };
+                                    openCompiledByteDataArea.Add(new Button(() =>
+                                    {
+                                        var tempFile = Path.ChangeExtension(Path.GetTempFileName(), ".bytes");
+                                        File.WriteAllBytes(tempFile, compileInfo.ShaderData);
+                                        UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(tempFile, 0);
+                                    }) { text = "Open Compiled Byte Data as File" });
+                                    shaderCompilationFoldout.Add(openCompiledByteDataArea);
+                                }
                             }
                         }
                     }
@@ -752,6 +754,7 @@ namespace Needle.Rendering.Editor
         [NonSerialized] private string cgIncludesRoot = null;
         [NonSerialized] private string packageCacheRoot = null;
         [NonSerialized] private string assetRoot = null;
+        [NonSerialized] private Dictionary<string, string> packageRoots = null;
         
         string StripProjectRelativePath(string absolutePath)
         {
@@ -775,6 +778,18 @@ namespace Needle.Rendering.Editor
                 return "Packages/" + packagePart + lastPart;
             }
             if (absolutePath.StartsWith(assetRoot, StringComparison.OrdinalIgnoreCase)) return absolutePath.Substring(assetRoot.Length);
+
+            if (packageRoots == null || !packageRoots.Any())
+            {
+                packageRoots = AssetDatabase.FindAssets("package")            
+                    .Select(AssetDatabase.GUIDToAssetPath)        
+                    .Where(x => Path.GetFileName(x) == "package.json")
+                    .Select(UnityEditor.PackageManager.PackageInfo.FindForAssetPath)
+                    .ToDictionary(x => x.resolvedPath.Replace("\\","/") + "/", x => "Packages/" + x.name + "/");
+            }
+
+            foreach (var root in packageRoots)
+                if (absolutePath.StartsWith(root.Key)) return root.Value + absolutePath.Substring(root.Key.Length);
             
             // TODO could be a local package, we could still rewrite as Packages/ path
             return absolutePath;
