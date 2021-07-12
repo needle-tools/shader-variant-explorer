@@ -2,6 +2,12 @@
 All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2021-07-12
+- fixed: re-enable keywords that are not in found preprocessor combinations
+- fixed: remove incorrect context menu that cleared import data for shaders
+- added: more info about compiled passes is logged
+- added: button to open a temp file with shader pass code and compiled byte code
+
 ## [0.2.1-exp] - 2021-07-10
 - fixed: keyword ordering issue in some cases
 - fixed: if the last keyword in a combination started with _ Unity rendered it as menu item
