@@ -2,6 +2,9 @@
 All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2021-07-12
+- fixed: compiled variant data now also logs arrays and struct child fields correctly
+
 ## [0.2.2] - 2021-07-12
 - fixed: re-enable keywords that are not in found preprocessor combinations
 - fixed: remove incorrect context menu that cleared import data for shaders
