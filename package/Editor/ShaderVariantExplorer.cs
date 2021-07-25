@@ -343,7 +343,7 @@ namespace Needle.Rendering.Editor
             };
             
             errorScrollView = new ListView() {
-#if HAVE_LOCAL_KEYWORDS
+#if !UNITY_2021_2_OR_NEWER
                 itemHeight = 60,
 #else
                 fixedItemHeight = 60,
@@ -460,7 +460,7 @@ namespace Needle.Rendering.Editor
             
             codeScrollView = new ListView()
             {
-#if HAVE_LOCAL_KEYWORDS
+#if !UNITY_2021_2_OR_NEWER
                 itemHeight = 20,
 #else
                 fixedItemHeight = 20,
