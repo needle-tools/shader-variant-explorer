@@ -11,6 +11,17 @@
     "precompiledReferences": [],
     "autoReferenced": false,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "Unity",
+            "expression": "[2020.3.16,2021)",
+            "define": "HAVE_PASS_COMPILE_VARIANT_2020_3"
+        },
+        {
+            "name": "Unity",
+            "expression": "2021.2",
+            "define": "HAVE_PASS_COMPILE_VARIANT_2021_2"
+        }
+    ],
     "noEngineReferences": false
 }
