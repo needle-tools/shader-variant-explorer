@@ -1,4 +1,4 @@
-#if !UNITY_2021_1_OR_NEWER
+#if !UNITY_2021_2_OR_NEWER
 #define HAVE_LOCAL_KEYWORDS
 #endif
 #if HAVE_PASS_COMPILE_VARIANT_2020_3 || HAVE_PASS_COMPILE_VARIANT_2021_2 
@@ -149,11 +149,26 @@ namespace Needle.Rendering.Editor
         public ShaderCompilerPlatform selectedPlatform = ShaderCompilerPlatform.D3D;
         public BuildTarget selectedBuildTarget = BuildTarget.StandaloneWindows64;
         public bool autoCompile = false;
+
+        void Initialize()
+        {
+            if (!listViewData || !tempDataSerializedObject?.targetObject)
+            {
+                listViewData = CreateInstance<ListViewData>();
+                tempDataSerializedObject = new SerializedObject(listViewData);
+            }
+
+            if (tempDataSerializedObject == null)
+            {
+                tempDataSerializedObject = new SerializedObject(listViewData);
+            }
+        }
         
         private void OnEnable()
         {
+            Initialize();
+            
             titleContent = new GUIContent("Shader Variant Explorer");
-            listViewData = CreateInstance<ListViewData>();
             
             var root = new VisualElement();
             rootVisualElement.Add(root);
@@ -397,8 +412,6 @@ namespace Needle.Rendering.Editor
                 });
                 contextMenu.ShowAsContext();
             });
-            
-            tempDataSerializedObject = new SerializedObject(listViewData);
             errorScrollView.Bind(tempDataSerializedObject);
 
             // toolbar for preprocessing
@@ -713,6 +726,8 @@ namespace Needle.Rendering.Editor
                     x.isPartOfSearchResults = !haveSearch || x.lineContent.IndexOf(preprocessingSearchTerm, StringComparison.InvariantCultureIgnoreCase) > -1;
                     return !haveSearch || x.fileSectionStart != null || x.isPartOfSearchResults;
                 });
+            
+            Initialize();
             listViewData.sections = sections?.ToList();
             tempDataSerializedObject.Update();
             
@@ -787,6 +802,7 @@ namespace Needle.Rendering.Editor
                     .Select(AssetDatabase.GUIDToAssetPath)        
                     .Where(x => Path.GetFileName(x) == "package.json")
                     .Select(UnityEditor.PackageManager.PackageInfo.FindForAssetPath)
+                    .Where(x => x != null)
                     .ToDictionary(x => x.resolvedPath.Replace("\\","/") + "/", x => "Packages/" + x.name + "/");
             }
 
@@ -825,6 +841,8 @@ namespace Needle.Rendering.Editor
             {
                 listViewData.messages.Clear();
             }
+            
+            Initialize();
             tempDataSerializedObject.Update();
         }
         
