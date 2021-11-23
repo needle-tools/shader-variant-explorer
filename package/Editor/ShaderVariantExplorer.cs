@@ -766,7 +766,11 @@ namespace Needle.Rendering.Editor
                             if (compileInfo.ShaderData.Length > 0)
                             {
                                 const string FoldoutSessionStateEntry = nameof(ShaderVariantExplorer) + "_" + "shaderCompilationFoldout";
-                                var shaderCompilationFoldout = new Foldout() { text = $"<b>{shaderType}</b> [{compileInfo.ShaderData.Length} bytes]", value = SessionState.GetBool(FoldoutSessionStateEntry, false), style = { marginTop = 5 } };
+                                var shaderTypeString = shaderType.ToString();
+#if UNITY_2021_2_OR_NEWER
+                                shaderTypeString = "<b>" + shaderTypeString + "</b>";
+#endif
+                                var shaderCompilationFoldout = new Foldout() { text = $"{shaderTypeString} [{compileInfo.ShaderData.Length} bytes]", value = SessionState.GetBool(FoldoutSessionStateEntry, false), style = { marginTop = 5 } };
                                 shaderCompilationFoldout.RegisterValueChangedCallback(evt => SessionState.SetBool(FoldoutSessionStateEntry, evt.newValue));
                                 outputLabel.Add(shaderCompilationFoldout);
                                 if(compileInfo.TextureBindings.Any()) shaderCompilationFoldout.Add(new Label($"Textures:\n  · {         string.Join("\n  · ", compileInfo.TextureBindings.Select(x => $"{x.Index} {x.Name} {x.Dim}"))}") { style = { marginTop = 10}});
@@ -912,10 +916,15 @@ namespace Needle.Rendering.Editor
                 if(listViewData.sections.Count > sectionIndex)
                 {
                     // TODO figure out why this happens on 2020.3
-                    try {
+                    try
+                    {
                         codeScrollView.SetSelection(sectionIndex);
                         codeScrollView.ScrollToItem(sectionIndex);
-                    } catch(ArgumentOutOfRangeException) {}
+                    }
+                    catch (ArgumentOutOfRangeException)
+                    {
+                        // ignore
+                    }
                 }
             }
 
