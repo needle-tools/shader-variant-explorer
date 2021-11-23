@@ -889,7 +889,11 @@ namespace Needle.Rendering.Editor
             
             // Hack: seems we need to bind this again, otherwise we're sometimes not getting updates on the ListView.
             codeScrollView.MarkDirtyRepaint();
+#if UNITY_2021_2_OR_NEWER
+            codeScrollView.Rebuild();
+#else
             codeScrollView.Refresh();
+#endif
             // codeScrollView.Bind(tempDataSerializedObject);
 
             rootVisualElement.Q<Label>(PreprocessedLinesCountLabel).text = "Lines: " + selectedVariant?.mapping.Sum(x => x.lines.Count);
@@ -1307,15 +1311,19 @@ namespace Needle.Rendering.Editor
         private static void CompileShaderVariant(Shader theShader, string[] keywords, ShaderCompilerPlatform shaderCompilerPlatform, BuildTarget buildTarget, string shaderTempPath, int subShaderIndex, int passId)
         {
             var sb = new StringBuilder();
-            var vertexVariant   = ShaderVariantExplorerInternal.PreprocessShaderVariant(theShader, subShaderIndex, passId, ShaderType.Vertex, ShaderUtil.GetShaderPlatformKeywordsForBuildTarget(shaderCompilerPlatform, buildTarget), keywords, shaderCompilerPlatform, buildTarget, GraphicsTier.Tier1, false);
-            var fragmentVariant = ShaderVariantExplorerInternal.PreprocessShaderVariant(theShader, subShaderIndex, passId, ShaderType.Fragment, ShaderUtil.GetShaderPlatformKeywordsForBuildTarget(shaderCompilerPlatform, buildTarget), keywords, shaderCompilerPlatform, buildTarget, GraphicsTier.Tier1, false);
+            var pass = ShaderUtil.GetShaderData(theShader).GetSubshader(subShaderIndex).GetPass(passId);
             
             sb.AppendLine(SeparatorLine);
             sb.AppendLine(GlobalKeywordsStart + KeywordBreadcrumbs.GetSortedKeywordString(keywords));
-            sb.AppendLine("-- shader for " + ShaderType.Vertex);
-            sb.AppendLine(vertexVariant.PreprocessedCode);
-            sb.AppendLine("-- shader for " + ShaderType.Fragment);
-            sb.AppendLine(fragmentVariant.PreprocessedCode);
+            foreach (ShaderType stage in Enum.GetValues(typeof(ShaderType)))
+            {
+                if (pass.HasShaderStage(stage))
+                {
+                    sb.AppendLine("-- shader for " + stage);
+                    var vertexVariant   = ShaderVariantExplorerInternal.PreprocessShaderVariant(theShader, subShaderIndex, passId, stage, ShaderUtil.GetShaderPlatformKeywordsForBuildTarget(shaderCompilerPlatform, buildTarget), keywords, shaderCompilerPlatform, buildTarget, GraphicsTier.Tier1, false);
+                    sb.AppendLine(vertexVariant.PreprocessedCode);
+                }
+            }
             File.WriteAllText(shaderTempPath, sb.ToString());
         }
 #endif
