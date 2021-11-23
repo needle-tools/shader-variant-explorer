@@ -193,7 +193,7 @@ namespace Needle.Rendering.Editor
         
         private void OnEnable()
         {
-            Debug.Log("Enabling window");
+            // Debug.Log("Enabling window");
             Initialize();
             
             titleContent = new GUIContent("Shader Variant Explorer");
@@ -543,6 +543,13 @@ namespace Needle.Rendering.Editor
                     UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(ShaderCompilationTempPath, 0);
             }) {text = "Open Preprocessed File"};
             preprocessingToolbar.Add(openPreprocessedFileButton);
+            
+            preprocessingToolbar.Add(new ToolbarButton(() =>
+            {
+                var passKeywords = ShaderVariantExplorerInternal.GetPassKeywords(shader, selectedSubShaderIndex, selectedPassId);
+                Debug.Log("Valid Keywords for " + shader + ", subshader " + selectedSubShaderIndex + ", pass " + selectedPassId + ":\n" + 
+                          string.Join("\n", passKeywords.Select(x => x.name + " (" + x.type + ", overridable: " + x.isOverridable + ")")));
+            }) { text = "Valid Pass Keywords" });
             
             // Debugging Helpers
             // preprocessingToolbar.Add(new ToolbarButton(() =>

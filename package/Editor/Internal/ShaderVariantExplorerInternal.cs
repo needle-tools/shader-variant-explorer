@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Reflection;
 using JetBrains.Annotations;
 using UnityEditor;
 using UnityEditor.Rendering;
@@ -24,5 +25,35 @@ public static class ShaderVariantExplorerInternal
     {
         // platformKeywords = ShaderUtil.GetShaderPlatformKeywordsForBuildTarget()
         return ShaderUtil.PreprocessShaderVariant(shader, subShaderIndex, passId, shaderType, platformKeywords, keywords, shaderCompilerPlatform, buildTarget, tier, stripLineDirectives);
+    }
+
+    public struct MockData
+    {
+        public uint m_SubShaderIndex;
+        public uint m_PassIndex;
+    }
+
+    private static FieldInfo m_SubShaderIndex;
+    private static FieldInfo m_PassIndex;
+    public static LocalKeyword[] GetPassKeywords(Shader shader, int subShaderIndex, int passId)
+    {
+        var pi = GetPassIdentifier(subShaderIndex, passId);
+        var keywords = ShaderUtil.GetPassKeywords(shader, pi);
+        return keywords;
+    }
+
+    public static PassIdentifier GetPassIdentifier(int subShaderIndex, int passId)
+    {
+        if(m_SubShaderIndex == null) m_SubShaderIndex = typeof(PassIdentifier).GetField("m_SubShaderIndex", (BindingFlags)(-1));
+        if (m_PassIndex == null) m_PassIndex = typeof(PassIdentifier).GetField("m_PassIndex", (BindingFlags)(-1));
+        
+        // Mock Pass Identifier
+        var pi = new PassIdentifier();
+        var obj = (object) pi;
+        m_SubShaderIndex?.SetValue(obj, (uint)subShaderIndex);
+        m_PassIndex?.SetValue(obj, (uint)passId);
+        pi = (PassIdentifier) obj;
+
+        return pi;
     }
 }
