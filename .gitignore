@@ -8,3 +8,4 @@ projects/*/obj
 projects/*/Temp
 projects/*/Assets/temp.txt
 projects/*/Assets/temp.txt.meta
+package/Editor/Internal/.idea

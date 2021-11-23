@@ -11,6 +11,7 @@ public static class ShaderVariantExplorerInternal
     public static string[] GetShaderGlobalKeywords(Shader s) => ShaderUtil.GetShaderGlobalKeywords(s).OrderBy(x => x).ToArray();
     public static string[] GetShaderLocalKeywords(Shader s) => ShaderUtil.GetShaderLocalKeywords(s).OrderBy(x => x).ToArray();
 
+#if UNITY_2021_2_OR_NEWER
     public static ShaderData.PreprocessedVariant PreprocessShaderVariant(
         Shader shader,
         int subShaderIndex,
@@ -25,12 +26,6 @@ public static class ShaderVariantExplorerInternal
     {
         // platformKeywords = ShaderUtil.GetShaderPlatformKeywordsForBuildTarget()
         return ShaderUtil.PreprocessShaderVariant(shader, subShaderIndex, passId, shaderType, platformKeywords, keywords, shaderCompilerPlatform, buildTarget, tier, stripLineDirectives);
-    }
-
-    public struct MockData
-    {
-        public uint m_SubShaderIndex;
-        public uint m_PassIndex;
     }
 
     private static FieldInfo m_SubShaderIndex;
@@ -56,4 +51,5 @@ public static class ShaderVariantExplorerInternal
 
         return pi;
     }
+#endif
 }
