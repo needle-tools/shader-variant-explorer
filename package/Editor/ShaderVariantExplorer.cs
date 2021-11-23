@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using UnityEditor;
 using UnityEditor.Rendering;
@@ -65,6 +66,25 @@ namespace Needle.Rendering.Editor
             public KeywordBreadcrumbs(Action<KeywordBreadcrumbs> createMenuItems) : base()
             {
                 this.createMenuItems = createMenuItems;
+                
+                this.AddManipulator(new ContextualMenuManipulator(evt =>
+                {
+                    evt.menu.AppendAction("Copy Keywords", act =>
+                    {
+                        EditorGUIUtility.systemCopyBuffer = this.GetSortedKeywordString();
+                    });
+                    evt.menu.AppendAction("Paste Keywords", act =>
+                    {
+                        var keywords = EditorGUIUtility.systemCopyBuffer;
+                        SetSelectedKeywords(keywords, true);
+                    }, evt2 =>
+                    {
+                        if (string.IsNullOrEmpty(EditorGUIUtility.systemCopyBuffer))
+                            return DropdownMenuAction.Status.Disabled;
+                        else
+                            return DropdownMenuAction.Status.Normal;
+                    });
+                }));
             }
             
             void AddKeyword(object keyword)
@@ -136,8 +156,13 @@ namespace Needle.Rendering.Editor
 
             public string GetSortedKeywordString()
             {
-                if (!selectedKeywords.Any()) return "<none>";
-                return string.Join(" ", selectedKeywords.OrderBy(x => x, StringComparer.Ordinal));
+                return GetSortedKeywordString(selectedKeywords);
+            }
+
+            internal static string GetSortedKeywordString(IList<string> keywords)
+            {
+                if (!keywords.Any()) return "<none>";
+                return string.Join(" ", keywords.OrderBy(x => x, StringComparer.Ordinal));
             }
         }
 
@@ -148,6 +173,8 @@ namespace Needle.Rendering.Editor
 
         public ShaderCompilerPlatform selectedPlatform = ShaderCompilerPlatform.D3D;
         public BuildTarget selectedBuildTarget = BuildTarget.StandaloneWindows64;
+        public int selectedSubShaderIndex = 0;
+        public int selectedPassId = 0;
         public bool autoCompile = false;
 
         void Initialize()
@@ -166,6 +193,7 @@ namespace Needle.Rendering.Editor
         
         private void OnEnable()
         {
+            Debug.Log("Enabling window");
             Initialize();
             
             titleContent = new GUIContent("Shader Variant Explorer");
@@ -181,16 +209,15 @@ namespace Needle.Rendering.Editor
             shaderField.RegisterValueChangedCallback(x =>
             {
                 if (x.newValue is Shader newShader)
-                    SetViewedShader(newShader);
+                    SetViewedShader(newShader, true);
             });
-            if(shader)
-                shaderField.value = shader;
             
             toolbar.Add(shaderField);
             
             toolbar.Add(new ToolbarButton(() =>
             {
-                SetViewedShader(shader);
+                SetViewedShader(shader, false);
+                KeywordSelectionChanged(true);
             }) { text = "Preprocess"});
             
             toolbar.Add(new ToolbarButton(() =>
@@ -248,7 +275,54 @@ namespace Needle.Rendering.Editor
             
             toolbar.Add(platformDropdown);
             toolbar.Add(buildTargetDropdown);
+            toolbar.Add(new ToolbarSpacer());
+            toolbar.Add(new Label() { name = VariantCountLabel });
+            toolbar.Add(new Label() { name = UsedVariantCountLabel });
+            toolbar.Add(new Label() { name = KeywordCountLabel });
+            
+            // toolbar.Add(new ToolbarButton(() =>
+            // {
+            //     Debug.Log("Platform: " + selectedPlatform + ", Build Target: " + selectedBuildTarget + "\n" + 
+            //               string.Join("\n", ShaderUtil.GetShaderPlatformKeywordsForBuildTarget(selectedPlatform, selectedBuildTarget)));
+            // }) { text = "Platform Keywords" });
+            // toolbar.Add(new ToolbarButton(() =>
+            // {
+            //     var variant = ShaderVariantExplorerInternal.PreprocessShaderVariant(shader, 0, 0, ShaderType.Vertex, ShaderUtil.GetShaderPlatformKeywordsForBuildTarget(selectedPlatform, selectedBuildTarget), globalBreadcrumbs.SelectedKeywords.ToArray(), selectedPlatform, selectedBuildTarget, GraphicsTier.Tier1, false);
+            //     Debug.Log(variant.PreprocessedCode);
+            // }) { text = "PreprocessShaderVariant" });
 
+            toolbar.Add(new ToolbarSpacer() { style = { flexGrow = 1} });
+            toolbar.Add(new ToolbarButton(() =>
+            {
+                if (!(Selection.activeObject is Shader shader)) return;
+                
+                string[] shaderGlobalKeywords = ShaderVariantExplorerInternal.GetShaderGlobalKeywords(shader);
+                string[] shaderLocalKeywords = ShaderVariantExplorerInternal.GetShaderLocalKeywords(shader);
+
+                Debug.Log("Global Keywords:\n" + string.Join("\n", shaderGlobalKeywords));
+                Debug.Log("Local Keywords:\n" + string.Join("\n", shaderLocalKeywords));
+                
+// #if UNITY_2021_2_OR_NEWER
+//                 var shaderData = ShaderUtil.GetShaderData(shader);
+//                 for (int i = 0; i < shaderData.SubshaderCount; i++)
+//                 {
+//                     var subShader = shaderData.GetSubshader(i);
+//                     for (int p = 0; p < subShader.PassCount; p++)
+//                     {
+//                         var pass = subShader.GetPass(p);
+//                         
+//                         // mock pass identifier
+//                         var pi = new PassIdentifier();
+//                         pi.GetType().GetField("m_SubShaderIndex", (System.Reflection.BindingFlags)(-1))?.SetValue(pi, (uint)i);
+//                         pi.GetType().GetField("m_PassIndex", (System.Reflection.BindingFlags)(-1))?.SetValue(pi, (uint)p);
+//
+//                         var keywords = ShaderUtil.GetPassKeywords(shader, pi);
+//                         Debug.Log($"[Subshader {i}/{shaderData.SubshaderCount}, Pass {p}/{subShader.PassCount}] Keywords: {string.Join("\n", keywords)}");
+//                     }
+//                 }
+// #endif
+            }) { text = "Log Keywords of selection" });
+            
             root.Add(toolbar);
 
             var globalKeywordToolbar = new Toolbar();
@@ -275,6 +349,14 @@ namespace Needle.Rendering.Editor
                     variantString = new string(chars).Replace(" ", "  •  ");
                     combinationSelectionMenu.AddItem(new GUIContent(variantString + " _"), false, SelectVariant, variant);
                 }
+                
+                // get all keywords for this shader
+                var globalKeywords = ShaderVariantExplorerInternal.GetShaderGlobalKeywords(shader);
+                foreach (var kw in globalKeywords)
+                {
+                    combinationSelectionMenu.AddItem(new GUIContent("Keywords/" + kw), false, SelectVariant, kw);
+                }
+                
                 combinationSelectionMenu.ShowAsContext();
             })
             {
@@ -329,7 +411,7 @@ namespace Needle.Rendering.Editor
                 
                 foreach (var kwd in globalBreadcrumbs.AvailableKeywords.Where(x => !distinctNextKeywords.Contains(x)))
                 {
-                    remainingOptionsMenu.AddItem(new GUIContent("(no preprocessed combinations)/" + kwd), false, SelectVariant, kwd);
+                    remainingOptionsMenu.AddItem(new GUIContent("All Keywords/" + kwd), false, SelectVariant, kwd);
                 }
                 
                 remainingOptionsMenu.ShowAsContext();
@@ -454,10 +536,65 @@ namespace Needle.Rendering.Editor
             
             var openPreprocessedFileButton = new ToolbarButton(() =>
             {
-                if(File.Exists(preprocessedFilePath))
-                    UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(preprocessedFilePath, 0);
+                if(File.Exists(ShaderCompilationTempPath))
+                    UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(ShaderCompilationTempPath, 0);
             }) {text = "Open Preprocessed File"};
             preprocessingToolbar.Add(openPreprocessedFileButton);
+            
+            // Debugging Helpers
+            // preprocessingToolbar.Add(new ToolbarButton(() =>
+            // {
+            //     LoadAndParsePreprocessedFile(0, false);
+            // }) { text = "Reload" });
+            // preprocessingToolbar.Add(new ToolbarButton(() =>
+            // {
+            //     LoadAndParsePreprocessedVariant(shader, globalBreadcrumbs.SelectedKeywords);
+            // }) { text = "Reprocess" });
+            
+            // var subshaderMenu = new ToolbarMenu()
+            // {
+            //     text = "Subshader"
+            // };
+            // preprocessingToolbar.Add(subshaderMenu);
+            // subshaderMenu.RegisterCallback<ClickEvent>(evt =>
+            // {
+            //     
+            // });
+            var passMenu = new ToolbarMenu()
+            {
+                text = "Pass"
+            };
+            passMenu.RegisterCallback<ClickEvent>(evt =>
+            {
+                var shaderData = ShaderUtil.GetShaderData(shader);
+                
+                var menu = new GenericMenu();
+                var singleSubshader = shaderData.SubshaderCount == 1;
+                for(int i = 0; i < shaderData.SubshaderCount; i++)
+                {
+                    var subShader = shaderData.GetSubshader(i);
+                    for(int j = 0; j < subShader.PassCount; j++)
+                    {
+                        int subShaderIndex = i;
+                        int passId = j;
+                        var pass = subShader.GetPass(passId);
+                        var passName = pass.Name;
+                        var passNameExtra = " (" + string.Join(", ", Enum.GetValues(typeof(ShaderType)).Cast<ShaderType>().Where(x => pass.HasShaderStage(x))) + ")";
+                        menu.AddItem(
+                            new GUIContent((singleSubshader ? "" : "Subshader " + subShaderIndex  + "/") + passName + passNameExtra), 
+                            selectedSubShaderIndex == subShaderIndex && selectedPassId == passId, 
+                            () =>
+                            {
+                                selectedSubShaderIndex = subShaderIndex;
+                                selectedPassId = passId;
+                                passMenu.text = passName;
+                                KeywordSelectionChanged(true);
+                            });
+                    }
+                }
+                menu.ShowAsContext();
+            });
+            preprocessingToolbar.Add(passMenu);
 
             var spacer = new VisualElement() { style = { flexGrow = 1 } };
             preprocessingToolbar.Add(spacer);
@@ -680,7 +817,7 @@ namespace Needle.Rendering.Editor
             verticalSplit.Add(errorScrollView);
 
 #if VARIANT_COMPILER
-            var horizontalSplit = new TwoPaneSplitView(0, 400, TwoPaneSplitViewOrientation.Horizontal);
+            var horizontalSplit = new TwoPaneSplitView(0, 600, TwoPaneSplitViewOrientation.Horizontal);
 
             horizontalSplit.Add(leftPane);
             horizontalSplit.Add(rightPane);
@@ -692,6 +829,12 @@ namespace Needle.Rendering.Editor
             
             root.Add(verticalSplit);
             
+            if(shader) 
+            {
+                shaderField.SetValueWithoutNotify(shader);
+                SetViewedShader(shader, true);
+            }
+            
             // actual initialization
             FetchAllShaderMessages();
         }
@@ -702,9 +845,16 @@ namespace Needle.Rendering.Editor
 
         private delegate void KeywordSelectionChangedEvent();
         private static event KeywordSelectionChangedEvent OnKeywordSelectionChanged;
+
+        private static bool preprocessOnDemand = true; // new behaviour
         
         private void KeywordSelectionChanged(bool notify)
         {
+            if (notify && preprocessOnDemand)
+            {
+                LoadAndParsePreprocessedVariant(shader, globalBreadcrumbs.SelectedKeywords);
+            }
+            
             var haveSearch = !string.IsNullOrEmpty(preprocessingSearchTerm.Trim());
             var sections = availableVariants
                 .FirstOrDefault(x =>
@@ -730,6 +880,8 @@ namespace Needle.Rendering.Editor
             Initialize();
             listViewData.sections = sections?.ToList();
             tempDataSerializedObject.Update();
+            codeScrollView.MarkDirtyRepaint();
+            codeScrollView.Bind(tempDataSerializedObject);
             
             // Debug.Log("Total number of lines in variant: " + listViewData.sections?.Count);
             
@@ -739,8 +891,6 @@ namespace Needle.Rendering.Editor
             if(notify)
                 OnKeywordSelectionChanged?.Invoke();
         }
-
-        private string preprocessedFilePath;
 
         private void SetListViewSelection(string s, int occurence, int index)
         {
@@ -846,7 +996,7 @@ namespace Needle.Rendering.Editor
             tempDataSerializedObject.Update();
         }
         
-        void SetViewedShader(Shader selectedShader)
+        void SetViewedShader(Shader selectedShader, bool preprocessOnDemand)
         {
             shader = selectedShader;
             FetchAllShaderMessages();
@@ -858,24 +1008,63 @@ namespace Needle.Rendering.Editor
             }
             // fetch local and global keywords for this shader
             // get shader info
-            GetShaderDetails(shader, out var variantCount, out string[] localKeywords, out string[] globalKeywords);
+            GetShaderDetails(shader, out var variantCount, out var usedVariantCount, out string[] localKeywords, out string[] globalKeywords);
             
             var globalKeywordsList = globalKeywords.ToList();
             // TODO not sure why this has to be added (doesn't show in the keyword list returned by Unity); potentially others have to be added as well?
             globalKeywordsList.Add("STEREO_INSTANCING_ON");
             globalKeywordsList.Add("INSTANCING_ON");
             globalKeywordsList.Add("PROCEDURAL_INSTANCING_ON");
+            globalKeywordsList = globalKeywordsList.Distinct().ToList();
             
             globalBreadcrumbs.SetAvailableKeywords(globalKeywordsList);
+            // Debug.Log("Have set available keywords to " + string.Join(", ", globalKeywordsList));
 #if HAVE_LOCAL_KEYWORDS
             localBreadcrumbs.SetAvailableKeywords(localKeywords.ToList());
 #endif
-            
-            // fetch the entire preprocessed file
-            CompileShader(shader, false, true, false, selectedPlatform);
-            
+            if (preprocessOnDemand)
+            {
+                LoadAndParsePreprocessedVariant(shader, globalBreadcrumbs.SelectedKeywords);
+            }
+            else
+            {
+                // guard: if expected variant count is very high we should probably not do this here.
+                if (usedVariantCount < 10000 || EditorUtility.DisplayDialog("That's a lot of variants!", "The selected shader " + shader.name + " has a lot of potential variants:\n" + variantCount + " (" + usedVariantCount + " used)"+ "\n\nAre you sure you want to fully preprocess it? This might take a long time. You can preprocess individual variants by selecting them with the breadcrumb selector instead.", "Go ahead", "Cancel"))
+                {
+                    CompileShader(shader, false, true, false, selectedPlatform);
+                    LoadAndParsePreprocessedFile(variantCount, true);
+                }
+            }
+
+            rootVisualElement.Q<Label>(VariantCountLabel).text     = "Variants: " + variantCount;
+            rootVisualElement.Q<Label>(UsedVariantCountLabel).text = "In use: " + usedVariantCount;
+            rootVisualElement.Q<Label>(KeywordCountLabel).text     = "Keywords: " + globalKeywords.Length;
+        }
+
+        void LoadAndParsePreprocessedVariant(Shader shader, List<string> keywords)
+        {
+            CompileShaderVariant(shader, keywords.ToArray(), selectedPlatform, selectedBuildTarget, ShaderCompilationTempPath, selectedSubShaderIndex, selectedPassId);
+            LoadAndParsePreprocessedFile(0, false);
+        }
+        
+        string ShaderCompilationTempPath => "Temp/Preprocessed-" + shader.name.Replace('/', '-').Replace('\\', '-') + ".shader"; 
+
+        private const string SeparatorLine = @"//////////////////////////////////////////////////////";
+#if !HAVE_LOCAL_KEYWORDS
+        private const string GlobalKeywordsStart = @"Keywords: ";
+#else
+        private const string GlobalKeywordsStart = @"Global Keywords: ";
+        private const string LocalkeywordsStart = @"Local Keywords: ";
+#endif
+        private const string LineStart = @"#line ";
+        private const string VariantCountLabel = nameof(VariantCountLabel);
+        private const string UsedVariantCountLabel = nameof(UsedVariantCountLabel);
+        private const string KeywordCountLabel = nameof(KeywordCountLabel);
+
+        void LoadAndParsePreprocessedFile(ulong variantCount, bool setKeywordsAfterParsing)
+        {
+            var preprocessedFilePath = ShaderCompilationTempPath;
             // check if file exists:
-            preprocessedFilePath = "Temp/Preprocessed-" + shader.name.Replace('/', '-').Replace('\\', '-') + ".shader";
             if(File.Exists(preprocessedFilePath))
             {
                 // read entire file into memory, and parse it one by one - might change between Unity versions
@@ -886,15 +1075,6 @@ namespace Needle.Rendering.Editor
                 var currentVariant = default(Variant);
                 var currentFileSection = default(FileSection);
                 var currentLineIndex = 0;
-
-                const string SeparatorLine = @"//////////////////////////////////////////////////////";
-#if !HAVE_LOCAL_KEYWORDS
-                const string GlobalKeywordsStart = @"Keywords: ";
-#else
-                const string GlobalKeywordsStart = @"Global Keywords: ";
-                const string LocalkeywordsStart = @"Local Keywords: ";
-#endif
-                const string LineStart = @"#line ";
 
                 var sb = new StringBuilder();
                 
@@ -990,7 +1170,8 @@ namespace Needle.Rendering.Editor
                     }
                 }
 
-                Debug.Log("ShaderUtil variants: " + variantCount + ", Total variants in preprocessed file: " + variants.Count);
+                // Debug.Log("ShaderUtil variants: " + variantCount + ", variants in preprocessed file: " + variants.Count + "\n" + string.Join("\n", variants.Select(x => x.globalKeywords + " - " + x.mapping.Sum(y => y.lines.Count))));
+                // Debug.Log("result: " + sb.ToString());
                 
                 // Write back out for debugging
                 // File.WriteAllText("Temp/processingResult.txt", sb.ToString());
@@ -1005,12 +1186,23 @@ namespace Needle.Rendering.Editor
                 
                 availableVariants = variants.OrderBy(x => x.globalKeywords).ThenBy(x => x.localKeywords).ToList();
                 
-                // select first found keyword combination
+                if(setKeywordsAfterParsing)
+                {
+                    var current = preprocessOnDemand;
+                    preprocessOnDemand = false;
+                    
+                    // select first found keyword combination
 #if HAVE_LOCAL_KEYWORDS
-                localBreadcrumbs.SetSelectedKeywords(variants.First().localKeywords, false);
+                    localBreadcrumbs.SetSelectedKeywords(variants.First().localKeywords, false);
 #endif
-                globalBreadcrumbs.SetSelectedKeywords(variants.FirstOrDefault()?.globalKeywords, false);
-                KeywordSelectionChanged(true);
+                    globalBreadcrumbs.SetSelectedKeywords(variants.FirstOrDefault()?.globalKeywords, false);
+                    preprocessOnDemand = current;
+                }
+                KeywordSelectionChanged(setKeywordsAfterParsing);
+            }
+            else
+            {
+                Debug.LogWarning("File doesn't exist: " + preprocessedFilePath + ", can't show preprocessed file.");
             }
         }
 
@@ -1083,6 +1275,21 @@ namespace Needle.Rendering.Editor
         //     s_ShaderPlatformNames = stringList;
         //     s_ShaderPlatformIndices = intList;
         // }
+
+        private static void CompileShaderVariant(Shader theShader, string[] keywords, ShaderCompilerPlatform shaderCompilerPlatform, BuildTarget buildTarget, string shaderTempPath, int subShaderIndex, int passId)
+        {
+            var sb = new StringBuilder();
+            var vertexVariant   = ShaderVariantExplorerInternal.PreprocessShaderVariant(theShader, subShaderIndex, passId, ShaderType.Vertex, ShaderUtil.GetShaderPlatformKeywordsForBuildTarget(shaderCompilerPlatform, buildTarget), keywords, shaderCompilerPlatform, buildTarget, GraphicsTier.Tier1, false);
+            var fragmentVariant = ShaderVariantExplorerInternal.PreprocessShaderVariant(theShader, subShaderIndex, passId, ShaderType.Fragment, ShaderUtil.GetShaderPlatformKeywordsForBuildTarget(shaderCompilerPlatform, buildTarget), keywords, shaderCompilerPlatform, buildTarget, GraphicsTier.Tier1, false);
+            
+            sb.AppendLine(SeparatorLine);
+            sb.AppendLine(GlobalKeywordsStart + KeywordBreadcrumbs.GetSortedKeywordString(keywords));
+            sb.AppendLine("-- shader for " + ShaderType.Vertex);
+            sb.AppendLine(vertexVariant.PreprocessedCode);
+            sb.AppendLine("-- shader for " + ShaderType.Fragment);
+            sb.AppendLine(fragmentVariant.PreprocessedCode);
+            File.WriteAllText(shaderTempPath, sb.ToString());
+        }
         
         private static void CompileShader(Shader theShader, bool includeAllVariants, bool preprocessOnly, bool stripLineDirectives, ShaderCompilerPlatform shaderCompilerPlatform)
         {
@@ -1122,7 +1329,7 @@ namespace Needle.Rendering.Editor
             });
         }
 
-        void GetShaderDetails(Shader requestedShader, out ulong shaderVariantCount, out string[] localKeywords, out string[] globalKeywords)
+        void GetShaderDetails(Shader requestedShader, out ulong shaderVariantCount, out ulong usedShaderVariantCount, out string[] localKeywords, out string[] globalKeywords)
         {
             if (GetVariantCount == null) GetVariantCount = typeof(ShaderUtil).GetMethod("GetVariantCount", (BindingFlags) (-1));
             if (GetShaderGlobalKeywords == null) GetShaderGlobalKeywords = typeof(ShaderUtil).GetMethod("GetShaderGlobalKeywords", (BindingFlags) (-1));
@@ -1131,12 +1338,14 @@ namespace Needle.Rendering.Editor
             if (GetVariantCount == null || GetShaderGlobalKeywords == null || GetShaderLocalKeywords == null)
             {
                 shaderVariantCount = 0;
+                usedShaderVariantCount = 0;
                 localKeywords = null;
                 globalKeywords = null;
                 return;
             }
             
             shaderVariantCount = (ulong) GetVariantCount.Invoke(null, new object[] {requestedShader, false});
+            usedShaderVariantCount = (ulong) GetVariantCount.Invoke(null, new object[] {requestedShader, true});
             localKeywords = (string[]) GetShaderLocalKeywords.Invoke(null, new object[] {requestedShader});
             globalKeywords = (string[]) GetShaderGlobalKeywords.Invoke(null, new object[] {requestedShader});
             
