@@ -292,37 +292,40 @@ namespace Needle.Rendering.Editor
             // }) { text = "PreprocessShaderVariant" });
 
             toolbar.Add(new ToolbarSpacer() { style = { flexGrow = 1} });
-            toolbar.Add(new ToolbarButton(() =>
-            {
-                if (!(Selection.activeObject is Shader shader)) return;
-                
-                string[] shaderGlobalKeywords = ShaderVariantExplorerInternal.GetShaderGlobalKeywords(shader);
-                string[] shaderLocalKeywords = ShaderVariantExplorerInternal.GetShaderLocalKeywords(shader);
-
-                Debug.Log("Global Keywords:\n" + string.Join("\n", shaderGlobalKeywords));
-                Debug.Log("Local Keywords:\n" + string.Join("\n", shaderLocalKeywords));
-                
-// #if UNITY_2021_2_OR_NEWER
-//                 var shaderData = ShaderUtil.GetShaderData(shader);
-//                 for (int i = 0; i < shaderData.SubshaderCount; i++)
-//                 {
-//                     var subShader = shaderData.GetSubshader(i);
-//                     for (int p = 0; p < subShader.PassCount; p++)
-//                     {
-//                         var pass = subShader.GetPass(p);
-//                         
-//                         // mock pass identifier
-//                         var pi = new PassIdentifier();
-//                         pi.GetType().GetField("m_SubShaderIndex", (System.Reflection.BindingFlags)(-1))?.SetValue(pi, (uint)i);
-//                         pi.GetType().GetField("m_PassIndex", (System.Reflection.BindingFlags)(-1))?.SetValue(pi, (uint)p);
-//
-//                         var keywords = ShaderUtil.GetPassKeywords(shader, pi);
-//                         Debug.Log($"[Subshader {i}/{shaderData.SubshaderCount}, Pass {p}/{subShader.PassCount}] Keywords: {string.Join("\n", keywords)}");
-//                     }
-//                 }
-// #endif
-            }) { text = "Log Keywords of selection" });
             
+            if(Unsupported.IsDeveloperMode())
+            {
+                toolbar.Add(new ToolbarButton(() =>
+                {
+                    if (!(Selection.activeObject is Shader shader)) return;
+                    
+                    string[] shaderGlobalKeywords = ShaderVariantExplorerInternal.GetShaderGlobalKeywords(shader);
+                    string[] shaderLocalKeywords = ShaderVariantExplorerInternal.GetShaderLocalKeywords(shader);
+
+                    Debug.Log("Global Keywords:\n" + string.Join("\n", shaderGlobalKeywords));
+                    Debug.Log("Local Keywords:\n" + string.Join("\n", shaderLocalKeywords));
+                    
+    // #if UNITY_2021_2_OR_NEWER
+    //                 var shaderData = ShaderUtil.GetShaderData(shader);
+    //                 for (int i = 0; i < shaderData.SubshaderCount; i++)
+    //                 {
+    //                     var subShader = shaderData.GetSubshader(i);
+    //                     for (int p = 0; p < subShader.PassCount; p++)
+    //                     {
+    //                         var pass = subShader.GetPass(p);
+    //                         
+    //                         // mock pass identifier
+    //                         var pi = new PassIdentifier();
+    //                         pi.GetType().GetField("m_SubShaderIndex", (System.Reflection.BindingFlags)(-1))?.SetValue(pi, (uint)i);
+    //                         pi.GetType().GetField("m_PassIndex", (System.Reflection.BindingFlags)(-1))?.SetValue(pi, (uint)p);
+    //
+    //                         var keywords = ShaderUtil.GetPassKeywords(shader, pi);
+    //                         Debug.Log($"[Subshader {i}/{shaderData.SubshaderCount}, Pass {p}/{subShader.PassCount}] Keywords: {string.Join("\n", keywords)}");
+    //                     }
+    //                 }
+    // #endif
+                }) { text = "Log Keywords of selection" });
+            }
             root.Add(toolbar);
 
             var globalKeywordToolbar = new Toolbar();
@@ -595,6 +598,7 @@ namespace Needle.Rendering.Editor
                 menu.ShowAsContext();
             });
             preprocessingToolbar.Add(passMenu);
+            preprocessingToolbar.Add(new Label() { name = PreprocessedLinesCountLabel} );
 
             var spacer = new VisualElement() { style = { flexGrow = 1 } };
             preprocessingToolbar.Add(spacer);
@@ -856,7 +860,7 @@ namespace Needle.Rendering.Editor
             }
             
             var haveSearch = !string.IsNullOrEmpty(preprocessingSearchTerm.Trim());
-            var sections = availableVariants
+            var selectedVariant = availableVariants
                 .FirstOrDefault(x =>
                     {
                         // Debug.Log(x.globalKeywords + " ==> " + globalBreadcrumbs.GetSortedKeywordString());
@@ -867,7 +871,8 @@ namespace Needle.Rendering.Editor
                             ;
                         return result;
                     }
-                )?
+                );
+            var sections = selectedVariant?
                 .mapping
                 .SelectMany(x => x.lines)
                 .Where(x => !collapseLines || x.fileSectionStart != null)
@@ -880,8 +885,12 @@ namespace Needle.Rendering.Editor
             Initialize();
             listViewData.sections = sections?.ToList();
             tempDataSerializedObject.Update();
+            
+            // Hack: seems we need to bind this again, otherwise we're sometimes not getting updates on the ListView.
             codeScrollView.MarkDirtyRepaint();
             codeScrollView.Bind(tempDataSerializedObject);
+
+            rootVisualElement.Q<Label>(PreprocessedLinesCountLabel).text = "Lines: " + selectedVariant?.mapping.Sum(x => x.lines.Count);
             
             // Debug.Log("Total number of lines in variant: " + listViewData.sections?.Count);
             
@@ -1015,6 +1024,7 @@ namespace Needle.Rendering.Editor
             globalKeywordsList.Add("STEREO_INSTANCING_ON");
             globalKeywordsList.Add("INSTANCING_ON");
             globalKeywordsList.Add("PROCEDURAL_INSTANCING_ON");
+            globalKeywordsList.Add("UNITY_COLORSPACE_GAMMA");
             globalKeywordsList = globalKeywordsList.Distinct().ToList();
             
             globalBreadcrumbs.SetAvailableKeywords(globalKeywordsList);
@@ -1039,6 +1049,10 @@ namespace Needle.Rendering.Editor
             rootVisualElement.Q<Label>(VariantCountLabel).text     = "Variants: " + variantCount;
             rootVisualElement.Q<Label>(UsedVariantCountLabel).text = "In use: " + usedVariantCount;
             rootVisualElement.Q<Label>(KeywordCountLabel).text     = "Keywords: " + globalKeywords.Length;
+
+            // reset
+            selectedSubShaderIndex = 0;
+            selectedPassId = 0;
         }
 
         void LoadAndParsePreprocessedVariant(Shader shader, List<string> keywords)
@@ -1060,6 +1074,7 @@ namespace Needle.Rendering.Editor
         private const string VariantCountLabel = nameof(VariantCountLabel);
         private const string UsedVariantCountLabel = nameof(UsedVariantCountLabel);
         private const string KeywordCountLabel = nameof(KeywordCountLabel);
+        private const string PreprocessedLinesCountLabel = nameof(PreprocessedLinesCountLabel);
 
         void LoadAndParsePreprocessedFile(ulong variantCount, bool setKeywordsAfterParsing)
         {

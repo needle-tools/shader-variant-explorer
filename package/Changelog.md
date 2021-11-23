@@ -2,6 +2,12 @@
 All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.3.0-exp] - 2021-11-23
+- fixed: compiles on 2021.2
+- added: support for 2020.3.16+ ShaderCompiler API
+- changed: preprocessing now happens on demand only for selected variants (giant shaders can now be explored!)
+- added: copy/paste shader variant combinations from the breadcrumb navigation
+
 ## [0.2.5] - 2021-08-16
 - added: pass compilation API now supported on 2020.3.16f1+
 
