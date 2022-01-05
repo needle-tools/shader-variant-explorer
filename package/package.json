@@ -1,6 +1,6 @@
 {
     "name": "com.needle.shader-variant-explorer",
-    "version": "0.3.0-pre",
+    "version": "0.3.0",
     "description": "Shader Variant Explorer lets you peek into Unity's shader compilation process and understand the composition of shader files better.",
     "displayName": "Shader Variant Explorer",
     "author": {

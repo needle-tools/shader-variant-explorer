@@ -2,7 +2,12 @@
 All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
-## [0.3.0-exp] - 2021-11-23
+## [0.3.0] - 2022-01-04
+- fixed: compilation warnings due to UIToolkit API changes
+- fixed: experimental menu option is now internal
+- feat: preprocessed code for all ShaderTypes/stages is now generated
+
+## [0.3.0-pre] - 2021-11-23
 - fixed: compiles on 2021.2
 - added: support for 2020.3.16+ ShaderCompiler API
 - changed: preprocessing now happens on demand only for selected variants (giant shaders can now be explored!)
