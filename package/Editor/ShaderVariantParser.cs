@@ -6,12 +6,16 @@ using System.Linq;
 using System.Text;
 using UnityEditor;
 using UnityEditor.Experimental;
+using UnityEditorInternal;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
+// TODO should use UnityDataTools.FileSystem instead of reinventing the wheel here
+// see https://github.com/Unity-Technologies/UnityDataTools/blob/main/TextDumper/TextDumperTool.cs
+
 public class ShaderVariantParser : MonoBehaviour
 {
-    [MenuItem("internal:Window/Needle/Shader Variant Explorer/Get Artifacts")]
+    [MenuItem("internal:Window/Needle/Shader Variant Explorer - Get Artifacts")]
     private static void GetPathsForSelected()
     {
         var assetPath = AssetDatabase.GetAssetPath(Selection.activeObject);
@@ -223,7 +227,7 @@ public class ShaderVariantParser : MonoBehaviour
             // parse m_SubShaders array - that contains pipeline state info
             Log("length line " + lines[line]);
             var subShaderCount = int.Parse(GetBetween(lines[line], "size", "(int)"));
-            Debug.Log("Subshader count: " + subShaderCount);
+            Debug.Log("<b>Subshaders</b>: " + subShaderCount);
             
 	        // TODO parse pass array
 	        // TODO get name and tags for each pass
@@ -233,13 +237,46 @@ public class ShaderVariantParser : MonoBehaviour
             {
 	            var start = full.LastIndexOf(prefix, StringComparison.Ordinal) + prefix.Length;
 	            var end = full.IndexOf(postfix, StringComparison.Ordinal);
-	            return full.Substring(start, end - start);
+	            
+	            if (end < 0) return full.Substring(start).Trim();
+	            return full.Substring(start, end - start).Trim();
             }
 
             var stateDict = new Dictionary<string, (string valuePropertyName, float value)>();
+            
+            void LogLastPass()
+            {
+	            Debug.Log("<b>Pass State</b>\n" + string.Join("\n", stateDict.Select(x => 
+		            x.Key + " → " + x.Value.value + (x.Value.valuePropertyName != null ? " [" + x.Value.valuePropertyName + "]": ""))));
+            }
+
+            int passCount = 0;
             // find end line where next indentation is less or equal than start
             while (line < count && string.IsNullOrWhiteSpace(lines[line]) || lines[line].StartsWith(startString, StringComparison.Ordinal))
             {
+	            const string passMarker = "data  (SerializedPass)";
+	            string currentIndent = "";
+	            if (lines[line].Contains(passMarker))
+	            {
+		            var currentIndentIndex = lines[line].IndexOf(passMarker, StringComparison.Ordinal);
+		            currentIndent = lines[line].Substring(0, currentIndentIndex) + "\t"; // one more
+		            
+		            // start new shader pass
+		            if(passCount > 0) 
+			            LogLastPass();
+		            
+		            stateDict.Clear();
+		            
+		            passCount++;
+	            }
+	            
+	            // TODO get right pass name
+	            // TODO Maybe we can get away with the pass index?
+	            // if(lines[line].Contains("m_Name")) {
+		           //  Debug.Log(currentIndent.Length + "|" + lines[line]);
+		           //  Debug.Log("Pass Name: " + GetBetween(lines[line], "m_Name", "(string)"));
+	            // }
+		            
 	            if (lines[line].EndsWith("(SerializedShaderFloatValue)", StringComparison.Ordinal))
 	            {
 		            var propName = GetBetween(lines[line], "\t", "(SerializedShaderFloatValue)");
@@ -250,7 +287,7 @@ public class ShaderVariantParser : MonoBehaviour
 
 		            var valueString = GetBetween(valueLine, "val", "(float)");
 		            var value = float.Parse(valueString);
-		            var nameString = GetBetween(nameLine, "name", "(string)");
+		            var nameString = GetBetween(nameLine, "name", "(string)").Trim('\"');
 		            if (nameString == "<noninit>") nameString = null; // no property name value
 
 		            stateDict[propName] = (nameString, value);
@@ -263,11 +300,17 @@ public class ShaderVariantParser : MonoBehaviour
 	            line++;
             }
 
-            Debug.Log("<b>State</b>\n" + string.Join("\n", stateDict.Select(x => x.Key + " => " + x.Value.value + ", " + x.Value.valuePropertyName)));
-
+            LogLastPass();
+            
             var endLine = line;
 
-            // var shaderData = lines.Skip(startLine).Take(endLine - startLine).ToArray();
+            var shaderData = lines.Skip(startLine).Take(endLine - startLine).ToArray();
+            var tmpFile = Path.GetTempFileName();
+            File.WriteAllLines(tmpFile, shaderData);
+            EditorApplication.delayCall += () =>
+            {
+	            InternalEditorUtility.OpenFileAtLineExternal(tmpFile, 0, 0);
+            };
             // Debug.Log("Found shader data:\n" + string.Join("\n", shaderData));
 
             // parse shader data into convenient dictionary
